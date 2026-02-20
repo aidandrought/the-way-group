@@ -63,11 +63,10 @@ export function TableDetailsSheet({ table, onClose }: TableDetailsSheetProps) {
   const handleSingleAssign = async (check: Check) => {
     if (check.tableId === table.id) {
       await clearCheck(check.id);
-      return true;
+      return;
     }
 
     await assignCheckToTable(check.id, table.id);
-    return true;
   };
 
   const handleClearTable = async () => {
@@ -108,10 +107,7 @@ export function TableDetailsSheet({ table, onClose }: TableDetailsSheetProps) {
             <Pressable
               key={check.id}
               onPress={async () => {
-                const shouldClose = await handleSingleAssign(check);
-                if (shouldClose) {
-                  onClose();
-                }
+                await handleSingleAssign(check);
               }}
               onLongPress={() => handleCheckLongPress(check)}
               delayLongPress={350}

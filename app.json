@@ -2,7 +2,7 @@
   "expo": {
     "name": "the-way-group",
     "slug": "the-way-group",
-    "version": "1.0.2",
+    "version": "1.0.4",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "thewaygroup",

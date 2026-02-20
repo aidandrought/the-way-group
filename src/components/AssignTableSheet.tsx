@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { FlatList, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useApp } from '../contexts/AppContext';
 import { Check, Table } from '../types';
 import { TableCircle } from './TableCircle';
@@ -9,15 +9,15 @@ interface AssignTableSheetProps {
   onClose: () => void;
 }
 
-const sections = [
-  { name: 'A', tables: [1, 2, 3, 4, 5, 6], cols: 2 },
-  { name: 'B', tables: [10, 11], cols: 2 },
-  { name: 'C', tables: [20, 21, 22, 23], cols: 4 },
-  { name: 'D', tables: [24, 25, 26, 27, 28], cols: 5 },
-  { name: 'E', tables: [30, 31, 32, 33, 34], cols: 5 },
-  { name: 'F', tables: [40, 41, 43, 44, 50, 51, 53, 54], cols: 4 },
-  { name: 'G', tables: [60, 61, 62, 63, 64], cols: 5 },
-  { name: 'H', tables: [70, 71, 72, 73, 74, 75, 76, 77, 78], cols: 5 },
+const tableColumns: { key: string; rows: number[][] }[] = [
+  { key: 'A', rows: [[1, 2, 3], [4, 5, 6]] },
+  { key: 'B', rows: [[10], [11]] },
+  { key: 'C', rows: [[20], [21], [22], [23]] },
+  { key: 'D', rows: [[24], [25], [26], [27], [28]] },
+  { key: 'E', rows: [[30], [31], [32], [33], [34]] },
+  { key: 'F', rows: [[40, 41, 43, 44], [50, 51, 53, 54]] },
+  { key: 'G', rows: [[60], [61], [62], [63], [64]] },
+  { key: 'H', rows: [[70, 71], [72, 73], [74, 75], [76, 77], [78]] },
 ];
 
 export function AssignTableSheet({ check, onClose }: AssignTableSheetProps) {
@@ -88,32 +88,41 @@ export function AssignTableSheet({ check, onClose }: AssignTableSheetProps) {
   return (
     <View>
       <Text style={styles.title}>Assign Check #{check.checkNumber}</Text>
-      <ScrollView style={styles.scrollView}>
-        {sections.map(section => (
-          <View key={section.name} style={styles.section}>
-            <FlatList
-              data={section.tables}
-              keyExtractor={(tableNum) => `${section.name}-${tableNum}`}
-              numColumns={section.cols}
-              columnWrapperStyle={styles.sectionRow}
-              renderItem={({ item: tableNum }) => {
-                const table = tableByNumber.get(tableNum);
-                if (!table) return null;
-                return (
-                  <TableCircle
-                    table={table}
-                    checks={state.checks}
-                    onPress={() => handleAssign(table.id)}
-                    compact
-                  />
-                );
-              }}
-              scrollEnabled={false}
-              initialNumToRender={section.tables.length}
-              removeClippedSubviews
-            />
-          </View>
-        ))}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.scrollView}>
+        <View style={styles.layoutBox}>
+          {tableColumns.map((column, columnIndex) => (
+            <View
+              key={column.key}
+              style={[
+                styles.column,
+                columnIndex < tableColumns.length - 1 && styles.columnGap,
+              ]}
+            >
+              {column.rows.map((row, rowIndex) => (
+                <View
+                  key={`${column.key}-row-${rowIndex}`}
+                  style={[styles.row, rowIndex === column.rows.length - 1 && styles.rowLast]}
+                >
+                  {row.map((tableNum) => {
+                    const table = tableByNumber.get(tableNum);
+                    if (!table) return <View key={`missing-${tableNum}`} style={styles.placeholder} />;
+                    const isLastInRow = row[row.length - 1] === tableNum;
+                    return (
+                      <View key={`table-${tableNum}`} style={[styles.cell, isLastInRow && styles.cellLast]}>
+                        <TableCircle
+                          table={table}
+                          checks={state.checks}
+                          onPress={() => handleAssign(table.id)}
+                          compact
+                        />
+                      </View>
+                    );
+                  })}
+                </View>
+              ))}
+            </View>
+          ))}
+        </View>
       </ScrollView>
     </View>
   );
@@ -163,15 +172,46 @@ const styles = StyleSheet.create({
   scrollView: {
     maxHeight: 400,
   },
-  section: {
+  layoutBox: {
+    paddingVertical: 4,
+    paddingHorizontal: 2,
+    backgroundColor: '#fafafa',
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  column: {
+    paddingHorizontal: 8,
+    paddingVertical: 6,
     borderWidth: 1,
-    borderColor: '#e0e0e0',
+    borderColor: '#d2d2d2',
     borderRadius: 12,
-    padding: 12,
+    backgroundColor: '#fff',
+    minWidth: 86,
+    justifyContent: 'flex-start',
+  },
+  columnGap: {
+    marginRight: 14,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
     marginBottom: 8,
   },
-  sectionRow: {
-    justifyContent: 'space-between',
-    marginBottom: 10,
+  rowLast: {
+    marginBottom: 0,
+  },
+  cell: {
+    width: 64,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 6,
+  },
+  cellLast: {
+    marginRight: 0,
+  },
+  placeholder: {
+    width: 64,
+    height: 60,
+    marginRight: 6,
   },
 });
