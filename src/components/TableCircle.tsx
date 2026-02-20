@@ -7,6 +7,7 @@ interface TableCircleProps {
   onLongPress?: () => void;
   checks: Check[];
   compact?: boolean;
+  size?: number;
   isSelected?: boolean;
 }
 
@@ -34,7 +35,7 @@ const getBadgeGlowColor = (status: StatusColor | undefined) => {
   return '#68BFE1';
 };
 
-export function TableCircle({ table, onPress, onLongPress, checks, compact = false, isSelected = false }: TableCircleProps) {
+export function TableCircle({ table, onPress, onLongPress, checks, compact = false, size, isSelected = false }: TableCircleProps) {
   const assignedChecks = checks.filter(check => check.tableId === table.id);
   const isAssigned = assignedChecks.length > 0;
   const sortedChecks = [...assignedChecks].sort((a, b) => a.checkNumber - b.checkNumber);
@@ -47,7 +48,8 @@ export function TableCircle({ table, onPress, onLongPress, checks, compact = fal
     ? (table.color ?? (assignedChecks.length === 1 ? assignedChecks[0].color : undefined))
     : undefined;
 
-  const size = compact ? 55 : 70;
+  const circleSize = size ?? (compact ? 55 : 70);
+  const useCompactText = compact || circleSize <= 55;
   const statusStyle = getStatusStyle(derivedTableColor, isAssigned);
 
   return (
@@ -58,16 +60,16 @@ export function TableCircle({ table, onPress, onLongPress, checks, compact = fal
         delayLongPress={250}
         style={[
           styles.circle,
-          { width: size, height: size, borderRadius: size / 2 },
+          { width: circleSize, height: circleSize, borderRadius: circleSize / 2 },
           statusStyle,
           isSelected && styles.circleSelected,
         ]}
       >
-        <Text style={[styles.number, compact && styles.numberCompact]}>
+        <Text style={[styles.number, useCompactText && styles.numberCompact]}>
           {table.tableNumber}
         </Text>
         {visibleChecks.length > 0 && (
-          <View style={[styles.checkList, compact && styles.checkListCompact]}>
+          <View style={[styles.checkList, useCompactText && styles.checkListCompact]}>
             {visibleChecks.map((check, index) => {
               const showHash = index === 0;
               const numberLabel = `${check.checkNumber}`;
@@ -76,11 +78,11 @@ export function TableCircle({ table, onPress, onLongPress, checks, compact = fal
                 assignedChecks.length > 1 &&
                 !!check.color &&
                 check.color !== derivedTableColor;
-              const circleSize = compact ? 10 : 12;
+              const badgeSize = useCompactText ? 10 : 12;
               return (
                 <View key={check.id} style={styles.checkToken}>
                   {showHash && (
-                    <Text style={[styles.checkText, compact && styles.checkTextCompact]}>#</Text>
+                    <Text style={[styles.checkText, useCompactText && styles.checkTextCompact]}>#</Text>
                   )}
                   <View style={styles.numberWrap}>
                     {showBadge && (
@@ -88,27 +90,27 @@ export function TableCircle({ table, onPress, onLongPress, checks, compact = fal
                         style={[
                           styles.badgeCircle,
                           {
-                            width: circleSize,
-                            height: circleSize,
-                            borderRadius: circleSize / 2,
+                            width: badgeSize,
+                            height: badgeSize,
+                            borderRadius: badgeSize / 2,
                             backgroundColor: badgeColor,
-                            transform: [{ translateX: -circleSize / 2 }, { translateY: -circleSize / 2 }],
+                            transform: [{ translateX: -badgeSize / 2 }, { translateY: -badgeSize / 2 }],
                           },
                         ]}
                       />
                     )}
-                    <Text style={[styles.checkText, compact && styles.checkTextCompact]}>
+                    <Text style={[styles.checkText, useCompactText && styles.checkTextCompact]}>
                       {numberLabel}
                     </Text>
                   </View>
                   {index < visibleChecks.length - 1 && (
-                    <Text style={[styles.checkText, compact && styles.checkTextCompact]}>, </Text>
+                    <Text style={[styles.checkText, useCompactText && styles.checkTextCompact]}>, </Text>
                   )}
                 </View>
               );
             })}
             {hasOverflow && (
-              <Text style={[styles.checkText, compact && styles.checkTextCompact]}>...</Text>
+              <Text style={[styles.checkText, useCompactText && styles.checkTextCompact]}>...</Text>
             )}
           </View>
         )}
