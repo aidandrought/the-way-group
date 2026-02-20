@@ -51,6 +51,12 @@
         "projectId": "ff72b012-e6a0-4c1e-9c00-f1d2e887fabd"
       }
     },
-    "owner": "aidandrought"
+    "owner": "aidandrought",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/ff72b012-e6a0-4c1e-9c00-f1d2e887fabd"
+    }
   }
 }

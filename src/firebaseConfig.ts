@@ -5,7 +5,7 @@ import {
 } from "firebase/firestore";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyAXYU8fx-DB5YESvLmFhJfWeP--2SGaCBQ",
+  apiKey: "AlzaSyDamnWsVcYpcb_E65cnroez_oLbWYnEedA",
   authDomain: "the-way-group.firebaseapp.com",
   projectId: "the-way-group",
   storageBucket: "the-way-group.firebasestorage.app",
