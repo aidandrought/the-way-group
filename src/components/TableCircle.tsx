@@ -8,10 +8,21 @@ interface TableCircleProps {
   checks: Check[];
   compact?: boolean;
   size?: number;
+  width?: number;
+  height?: number;
+  borderRadius?: number;
+  maxVisibleChecks?: number;
   isSelected?: boolean;
+  displayLabel?: string;
 }
 
 const getStatusStyle = (status: StatusColor | undefined, assigned: boolean) => {
+  if (status === 'blue') {
+    return {
+      backgroundColor: '#68BFE1',
+      borderColor: '#2F7EA1',
+    };
+  }
   if (status === 'green') {
     return {
       backgroundColor: '#7ECF8F',
@@ -35,21 +46,37 @@ const getBadgeGlowColor = (status: StatusColor | undefined) => {
   return '#68BFE1';
 };
 
-export function TableCircle({ table, onPress, onLongPress, checks, compact = false, size, isSelected = false }: TableCircleProps) {
+export function TableCircle({
+  table,
+  onPress,
+  onLongPress,
+  checks,
+  compact = false,
+  size,
+  width,
+  height,
+  borderRadius,
+  maxVisibleChecks,
+  isSelected = false,
+  displayLabel,
+}: TableCircleProps) {
   const assignedChecks = checks.filter(check => check.tableId === table.id);
   const isAssigned = assignedChecks.length > 0;
   const sortedChecks = [...assignedChecks].sort((a, b) => a.checkNumber - b.checkNumber);
   const hasSingleDigit = assignedChecks.some(check => check.checkNumber < 10);
   const hasDoubleDigit = assignedChecks.some(check => check.checkNumber >= 10);
-  const maxVisible = hasDoubleDigit ? (hasSingleDigit ? 4 : 3) : 5;
+  const defaultMaxVisible = hasDoubleDigit ? (hasSingleDigit ? 4 : 3) : 5;
+  const maxVisible = maxVisibleChecks ?? defaultMaxVisible;
   const visibleChecks = sortedChecks.slice(0, maxVisible);
   const hasOverflow = sortedChecks.length > maxVisible;
-  const derivedTableColor = isAssigned
-    ? (table.color ?? (assignedChecks.length === 1 ? assignedChecks[0].color : undefined))
-    : undefined;
+  const derivedTableColor = table.color ?? (assignedChecks.length === 1 ? assignedChecks[0].color : undefined);
 
-  const circleSize = size ?? (compact ? 55 : 70);
-  const useCompactText = compact || circleSize <= 55;
+  const baseSize = size ?? (compact ? 55 : 70);
+  const controlWidth = width ?? baseSize;
+  const controlHeight = height ?? baseSize;
+  const controlRadius = borderRadius ?? Math.min(controlWidth, controlHeight) / 2;
+  const useCompactText = compact || Math.min(controlWidth, controlHeight) <= 55;
+  const usesCustomLabel = !!displayLabel;
   const statusStyle = getStatusStyle(derivedTableColor, isAssigned);
 
   return (
@@ -60,13 +87,20 @@ export function TableCircle({ table, onPress, onLongPress, checks, compact = fal
         delayLongPress={250}
         style={[
           styles.circle,
-          { width: circleSize, height: circleSize, borderRadius: circleSize / 2 },
+          { width: controlWidth, height: controlHeight, borderRadius: controlRadius },
           statusStyle,
           isSelected && styles.circleSelected,
         ]}
       >
-        <Text style={[styles.number, useCompactText && styles.numberCompact]}>
-          {table.tableNumber}
+        <Text
+          style={[
+            styles.number,
+            useCompactText && styles.numberCompact,
+            usesCustomLabel && styles.numberLabel,
+          ]}
+          numberOfLines={2}
+        >
+          {displayLabel ?? table.tableNumber}
         </Text>
         {visibleChecks.length > 0 && (
           <View style={[styles.checkList, useCompactText && styles.checkListCompact]}>
@@ -143,9 +177,16 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     color: '#1A1A1A',
+    textAlign: 'center',
   },
   numberCompact: {
     fontSize: 14,
+  },
+  numberLabel: {
+    fontSize: 12,
+    lineHeight: 14,
+    paddingHorizontal: 4,
+    color: '#000000',
   },
   checkList: {
     marginTop: 2,

@@ -2,18 +2,10 @@ import { collection, doc, onSnapshot, orderBy, query, serverTimestamp, writeBatc
 import React, { createContext, useContext, useEffect, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { db } from "../firebaseConfig";
+import type { RestaurantId } from "../constants/restaurants";
+import { getTableNumbersForRestaurant } from "../constants/tableLayouts";
 import type { AppState, Check, Table, StatusColor } from "../types";
-
-const TABLE_NUMBERS = [
-  1, 2, 3, 4, 5, 6, 10, 11, 20, 21, 22, 23, 24, 25, 26, 27, 28, 30, 31, 32, 33, 34,
-  40, 41, 43, 44, 50, 51, 53, 54, 60, 61, 62, 63, 64, 70, 71, 72, 73, 74, 75, 76, 77, 78,
-];
-const CACHE_KEY = "appState:v1";
 const DEVICE_ID_KEY = "deviceId:v1";
-const DEFAULT_TABLES: Table[] = TABLE_NUMBERS.map((tableNumber) => ({
-  id: `table-${tableNumber}`,
-  tableNumber,
-}));
 const DEFAULT_CHECKS: Check[] = Array.from({ length: 100 }, (_, index) => {
   const checkNumber = index + 1;
   return {
@@ -25,6 +17,12 @@ const DEFAULT_CHECKS: Check[] = Array.from({ length: 100 }, (_, index) => {
   };
 });
 
+const buildDefaultTables = (restaurantId: RestaurantId): Table[] =>
+  getTableNumbersForRestaurant(restaurantId).map((tableNumber) => ({
+    id: `table-${tableNumber}`,
+    tableNumber,
+  }));
+
 type AppContextType = {
   state: AppState;
   loading: boolean;
@@ -32,6 +30,7 @@ type AppContextType = {
   checksLoaded: boolean;
   tablesLoaded: boolean;
   seeding: boolean;
+  restaurantId: RestaurantId;
   seedFirestore: () => Promise<void>;
   assignCheckToTable: (checkId: string, tableId: string) => Promise<void>;
   clearCheck: (checkId: string) => Promise<void>;
@@ -52,10 +51,32 @@ export function useApp() {
   return context;
 }
 
-export function AppProvider({ children }: { children: React.ReactNode }) {
+const getCollectionRef = (restaurantId: RestaurantId, collectionName: "checks" | "tables") => {
+  // Keep Mill Creek on the current top-level collections to preserve existing production data.
+  if (restaurantId === "mill-creek") return collection(db, collectionName);
+  return collection(db, "restaurants", restaurantId, collectionName);
+};
+
+const getDocRef = (
+  restaurantId: RestaurantId,
+  collectionName: "checks" | "tables",
+  id: string
+) => {
+  if (restaurantId === "mill-creek") return doc(db, collectionName, id);
+  return doc(db, "restaurants", restaurantId, collectionName, id);
+};
+
+export function AppProvider({
+  children,
+  restaurantId,
+}: {
+  children: React.ReactNode;
+  restaurantId: RestaurantId;
+}) {
+  const cacheKey = `appState:${restaurantId}:v1`;
   const [state, setState] = useState<AppState>({
     checks: DEFAULT_CHECKS,
-    tables: DEFAULT_TABLES,
+    tables: buildDefaultTables(restaurantId),
     selectedCheck: null,
     selectedTable: null,
   });
@@ -74,7 +95,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     const loadCachedState = async () => {
       try {
-        const raw = await AsyncStorage.getItem(CACHE_KEY);
+        const raw = await AsyncStorage.getItem(cacheKey);
         if (!mounted || !raw) return;
         const parsed = JSON.parse(raw) as Partial<AppState> | null;
         if (!parsed) return;
@@ -95,7 +116,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [cacheKey]);
 
   useEffect(() => {
     let mounted = true;
@@ -124,8 +145,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setLoading(true);
     setError(null);
 
-    const checksQuery = query(collection(db, "checks"), orderBy("checkNumber", "asc"));
-    const tablesQuery = query(collection(db, "tables"), orderBy("tableNumber", "asc"));
+    const checksQuery = query(getCollectionRef(restaurantId, "checks"), orderBy("checkNumber", "asc"));
+    const tablesQuery = query(getCollectionRef(restaurantId, "tables"), orderBy("tableNumber", "asc"));
 
     const unsubChecks = onSnapshot(
       checksQuery,
@@ -165,7 +186,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       unsubChecks();
       unsubTables();
     };
-  }, []);
+  }, [restaurantId]);
 
   useEffect(() => {
     if (error) {
@@ -180,7 +201,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!checksLoaded || !tablesLoaded) return;
     if (didAutoSeed) return;
 
-    if (state.tables.length === 0 && state.checks.length === 0) {
+    const expectedTableNumbers = getTableNumbersForRestaurant(restaurantId);
+    const existingTableNumbers = new Set(state.tables.map(table => table.tableNumber));
+    const hasMissingTables = expectedTableNumbers.some(tableNumber => !existingTableNumbers.has(tableNumber));
+    const hasMissingChecks = state.checks.length < 100;
+
+    if ((state.tables.length === 0 && state.checks.length === 0) || hasMissingTables || hasMissingChecks) {
       setDidAutoSeed(true);
       setSeeding(true);
       seedFirestore()
@@ -198,20 +224,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       checks: state.checks,
       tables: state.tables,
     });
-    AsyncStorage.setItem(CACHE_KEY, payload).catch((err) => {
+    AsyncStorage.setItem(cacheKey, payload).catch((err) => {
       console.warn("cache write failed", err);
     });
-  }, [state.checks, state.tables, hydrated]);
+  }, [state.checks, state.tables, hydrated, cacheKey]);
 
   async function seedFirestore() {
     const batch = writeBatch(db);
 
-    for (const n of TABLE_NUMBERS) {
-      batch.set(doc(db, "tables", `table-${n}`), { tableNumber: n }, { merge: true });
+    for (const n of getTableNumbersForRestaurant(restaurantId)) {
+      batch.set(getDocRef(restaurantId, "tables", `table-${n}`), { tableNumber: n }, { merge: true });
     }
 
     for (let i = 1; i <= 100; i++) {
-      batch.set(doc(db, "checks", `check-${i}`), { checkNumber: i }, { merge: true });
+      batch.set(getDocRef(restaurantId, "checks", `check-${i}`), { checkNumber: i }, { merge: true });
     }
 
     await batch.commit();
@@ -229,7 +255,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     const batch = writeBatch(db);
     batch.set(
-      doc(db, "checks", checkId),
+      getDocRef(restaurantId, "checks", checkId),
       { tableId, updatedAt: serverTimestamp(), updatedByDeviceId: deviceId },
       { merge: true }
     );
@@ -248,7 +274,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     const batch = writeBatch(db);
     batch.set(
-      doc(db, "checks", checkId),
+      getDocRef(restaurantId, "checks", checkId),
       { tableId: null, updatedAt: serverTimestamp(), updatedByDeviceId: deviceId },
       { merge: true }
     );
@@ -269,7 +295,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const batch = writeBatch(db);
     checkIds.forEach(checkId => {
       batch.set(
-        doc(db, "checks", checkId),
+        getDocRef(restaurantId, "checks", checkId),
         { tableId, updatedAt: serverTimestamp(), updatedByDeviceId: deviceId },
         { merge: true }
       );
@@ -280,6 +306,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   async function clearTable(tableId: string) {
     setState(prev => ({
       ...prev,
+      tables: prev.tables.map(table =>
+        table.id === tableId
+          ? { ...table, color: undefined }
+          : table
+      ),
       checks: prev.checks.map(check =>
         check.tableId === tableId
           ? { ...check, tableId: null }
@@ -292,11 +323,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .filter(check => check.tableId === tableId)
       .forEach(check => {
         batch.set(
-          doc(db, "checks", check.id),
+          getDocRef(restaurantId, "checks", check.id),
           { tableId: null, updatedAt: serverTimestamp(), updatedByDeviceId: deviceId },
           { merge: true }
         );
       });
+    batch.set(
+      getDocRef(restaurantId, "tables", tableId),
+      { color: null, updatedAt: serverTimestamp(), updatedByDeviceId: deviceId },
+      { merge: true }
+    );
     await batch.commit();
   }
 
@@ -310,14 +346,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const batch = writeBatch(db);
     state.checks.forEach(check => {
       batch.set(
-        doc(db, "checks", check.id),
+        getDocRef(restaurantId, "checks", check.id),
         { tableId: null, color: null, updatedAt: serverTimestamp(), updatedByDeviceId: deviceId },
         { merge: true }
       );
     });
     state.tables.forEach(table => {
       batch.set(
-        doc(db, "tables", table.id),
+        getDocRef(restaurantId, "tables", table.id),
         { color: null, updatedAt: serverTimestamp(), updatedByDeviceId: deviceId },
         { merge: true }
       );
@@ -337,7 +373,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     const batch = writeBatch(db);
     batch.set(
-      doc(db, "checks", checkId),
+      getDocRef(restaurantId, "checks", checkId),
       { color, updatedAt: serverTimestamp(), updatedByDeviceId: deviceId },
       { merge: true }
     );
@@ -356,7 +392,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     const batch = writeBatch(db);
     batch.set(
-      doc(db, "tables", tableId),
+      getDocRef(restaurantId, "tables", tableId),
       { color, updatedAt: serverTimestamp(), updatedByDeviceId: deviceId },
       { merge: true }
     );
@@ -378,6 +414,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     checksLoaded,
     tablesLoaded,
     seeding,
+    restaurantId,
     seedFirestore,
     assignCheckToTable,
     clearCheck,

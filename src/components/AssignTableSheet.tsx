@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { getTableLayoutColumns } from '../constants/tableLayouts';
 import { useApp } from '../contexts/AppContext';
 import { Check, Table } from '../types';
 import { TableCircle } from './TableCircle';
@@ -9,19 +10,8 @@ interface AssignTableSheetProps {
   onClose: () => void;
 }
 
-const tableColumns: { key: string; rows: number[][] }[] = [
-  { key: 'A', rows: [[1, 2, 3], [4, 5, 6]] },
-  { key: 'B', rows: [[10], [11]] },
-  { key: 'C', rows: [[20], [21], [22], [23]] },
-  { key: 'D', rows: [[24], [25], [26], [27], [28]] },
-  { key: 'E', rows: [[30], [31], [32], [33], [34]] },
-  { key: 'F', rows: [[40, 41, 43, 44], [50, 51, 53, 54]] },
-  { key: 'G', rows: [[60], [61], [62], [63], [64]] },
-  { key: 'H', rows: [[70, 71], [72, 73], [74, 75], [76, 77], [78]] },
-];
-
 export function AssignTableSheet({ check, onClose }: AssignTableSheetProps) {
-  const { state, assignCheckToTable, clearCheck } = useApp();
+  const { state, restaurantId, assignCheckToTable, clearCheck } = useApp();
   const [showConflict, setShowConflict] = useState(false);
   const [conflictTable, setConflictTable] = useState<Table | null>(null);
   const [targetTableId, setTargetTableId] = useState<string | null>(null);
@@ -31,6 +21,7 @@ export function AssignTableSheet({ check, onClose }: AssignTableSheetProps) {
     state.tables.forEach(table => map.set(table.tableNumber, table));
     return map;
   }, [state.tables]);
+  const tableColumns = useMemo(() => getTableLayoutColumns(restaurantId), [restaurantId]);
 
   const handleAssign = async (tableId: string) => {
     if (check.tableId === tableId) {
@@ -85,45 +76,236 @@ export function AssignTableSheet({ check, onClose }: AssignTableSheetProps) {
     );
   }
 
+  const renderTableRow = (
+    row: Array<number | null>,
+    rowKey: string,
+    isLastRow: boolean,
+    cellStyle?: object,
+    rowStyle?: object
+  ) => (
+    <View key={rowKey} style={[styles.row, rowStyle, isLastRow && styles.rowLast]}>
+      {row.map((tableNum, cellIndex) => {
+        if (tableNum == null) {
+          const isLastInRow = cellIndex === row.length - 1;
+          return (
+            <View
+              key={`${rowKey}-gap-${cellIndex}`}
+              style={[styles.placeholder, isLastInRow && styles.cellLast]}
+            />
+          );
+        }
+        const table = tableByNumber.get(tableNum);
+        if (!table) return <View key={`missing-${tableNum}`} style={styles.placeholder} />;
+        const isLastInRow = cellIndex === row.length - 1;
+        return (
+          <View key={`table-${tableNum}`} style={[styles.cell, cellStyle, isLastInRow && styles.cellLast]}>
+            <TableCircle
+              table={table}
+              checks={state.checks}
+              onPress={() => handleAssign(table.id)}
+              compact
+            />
+          </View>
+        );
+      })}
+    </View>
+  );
+
+  const renderGroupCard = (
+    key: string,
+    rows: Array<Array<number | null>>,
+    options?: { cellStyle?: object; cardStyle?: object; rowStyle?: object }
+  ) => (
+    <View key={key} style={[styles.column, options?.cardStyle]}>
+      {rows.map((row, rowIndex) =>
+        renderTableRow(
+          row,
+          `${key}-row-${rowIndex}`,
+          rowIndex === rows.length - 1,
+          options?.cellStyle,
+          options?.rowStyle
+        )
+      )}
+    </View>
+  );
+
+  const renderTablePill = (
+    tableNumber: number,
+    key: string,
+    options?: {
+      width?: number;
+      height?: number;
+      borderRadius?: number;
+      maxVisibleChecks?: number;
+      containerStyle?: object;
+      displayLabel?: string;
+    }
+  ) => {
+    const table = tableByNumber.get(tableNumber);
+    if (!table) return <View key={`missing-${tableNumber}`} style={styles.placeholder} />;
+    return (
+      <View key={key} style={[styles.mukilteoCustomCell, options?.containerStyle]}>
+        <TableCircle
+          table={table}
+          checks={state.checks}
+          onPress={() => handleAssign(table.id)}
+          compact
+          width={options?.width}
+          height={options?.height}
+          borderRadius={options?.borderRadius}
+          maxVisibleChecks={options?.maxVisibleChecks}
+          displayLabel={options?.displayLabel}
+        />
+      </View>
+    );
+  };
+
+  const renderDefaultLayout = () => (
+    <View style={styles.layoutBox}>
+      {tableColumns.map((column, columnIndex) => (
+        <View
+          key={column.key}
+          style={[
+            styles.column,
+            columnIndex < tableColumns.length - 1 && styles.columnGap,
+          ]}
+        >
+          {column.rows.map((row, rowIndex) =>
+            renderTableRow(row, `${column.key}-row-${rowIndex}`, rowIndex === column.rows.length - 1)
+          )}
+        </View>
+      ))}
+    </View>
+  );
+
+  const renderEverettGroupedLayout = () => (
+    <View style={styles.layoutBox}>
+      <View style={[styles.groupStack, styles.columnGap]}>
+        <View style={[styles.groupRow, styles.everettTopGroupRow]}>
+          {renderGroupCard('everett-1to6', [[1, 2, 3, 4, 5, 6]], {
+            cellStyle: styles.everettWideCell,
+          })}
+          {renderGroupCard('everett-10', [[10]], {
+            cardStyle: styles.everettSingleBubble,
+          })}
+        </View>
+        {renderGroupCard('everett-20to28', [[20, 21, 22, 23, 24, 25, 26, 27, 28]])}
+        {renderGroupCard('everett-40to44', [[40, null, 41, null, 42, null, 43, null, 44]])}
+      </View>
+
+      <View style={[styles.groupStack, styles.columnGap]}>
+        {renderGroupCard('everett-11to16', [[11, 12], [13, 14], [15, 16]])}
+      </View>
+
+      <View style={styles.groupRow}>
+        {renderGroupCard('everett-30to35', [[30, 31], [32, 33], [34, 35]])}
+        {renderGroupCard('everett-36to39', [[36], [37], [38], [39]])}
+      </View>
+    </View>
+  );
+
+  const renderMukilteoGroupedLayout = () => (
+    <View style={styles.layoutBox}>
+      <View style={styles.mukilteoSceneStack}>
+        <View style={styles.mukilteoPatioSection}>
+          <Text style={styles.mukilteoSectionLabel}>Patio:</Text>
+          {renderGroupCard('muk-zone4-patio', [[69, 68, 67, 66, 65, 64, 63, 62, 61, 60]])}
+        </View>
+
+        <View style={styles.groupRow}>
+          <View style={[styles.groupStack, styles.columnGap]}>
+            <View style={styles.groupStack}>
+              {renderTablePill(6, 'muk-zone3-6', {
+                width: 54,
+                height: 126,
+                borderRadius: 14,
+                maxVisibleChecks: 10,
+                containerStyle: styles.mukilteoSixSlot,
+              })}
+              {renderGroupCard('muk-zone2-31to34', [[34], [33], [32], [31]], {
+                cardStyle: styles.everettSingleBubble,
+                rowStyle: styles.mukilteo3134Row,
+              })}
+            </View>
+          </View>
+
+          <View style={[styles.groupStack, styles.columnGap]}>
+            <View style={styles.mukilteoZigZagStack}>
+              <View style={styles.mukilteoZigRow}>
+                {renderTablePill(44, 'muk-zone3-44', { width: 62, height: 62, borderRadius: 16, maxVisibleChecks: 8 })}
+              </View>
+              <View style={[styles.mukilteoZigRow, styles.mukilteoZigRowOffset]}>
+                {renderTablePill(43, 'muk-zone3-43', { width: 62, height: 62, borderRadius: 16, maxVisibleChecks: 8 })}
+              </View>
+              <View style={styles.mukilteoZigRow}>
+                {renderTablePill(42, 'muk-zone3-42', { width: 62, height: 62, borderRadius: 16, maxVisibleChecks: 8 })}
+              </View>
+              <View style={[styles.mukilteoZigRow, styles.mukilteoZigRowOffset]}>
+                {renderTablePill(41, 'muk-zone3-41', { width: 62, height: 62, borderRadius: 16, maxVisibleChecks: 8 })}
+              </View>
+              <View style={styles.mukilteoZigRow}>
+                {renderTablePill(40, 'muk-zone3-40', { width: 62, height: 62, borderRadius: 16, maxVisibleChecks: 8 })}
+              </View>
+            </View>
+            <View style={styles.mukilteoBottomAlignRow}>
+              {renderTablePill(5, 'muk-zone2-5', {
+                width: 62,
+                height: 156,
+                borderRadius: 16,
+                maxVisibleChecks: 14,
+              })}
+              {renderTablePill(30, 'muk-zone2-30', {
+                width: 62,
+                height: 62,
+                borderRadius: 16,
+                maxVisibleChecks: 8,
+                containerStyle: styles.mukilteoThirtyLower,
+              })}
+            </View>
+          </View>
+
+          <View style={styles.groupRow}>
+            <View style={styles.groupStack}>
+              {renderGroupCard('muk-zone3-50s', [[52, 51, 50]])}
+              <View style={styles.groupRow}>
+                {renderTablePill(4, 'muk-zone1-4', { width: 62, height: 136, borderRadius: 16, maxVisibleChecks: 10 })}
+                {renderTablePill(3, 'muk-zone1-3', { width: 62, height: 136, borderRadius: 16, maxVisibleChecks: 10 })}
+                {renderTablePill(2, 'muk-zone1-2', { width: 62, height: 136, borderRadius: 16, maxVisibleChecks: 10 })}
+                {renderTablePill(1, 'muk-zone1-1', { width: 62, height: 136, borderRadius: 16, maxVisibleChecks: 10 })}
+              </View>
+              <View style={styles.mukilteoTenLane}>
+                {renderTablePill(10, 'muk-zone1-10', {
+                  width: 250,
+                  height: 62,
+                  borderRadius: 14,
+                  maxVisibleChecks: 18,
+                })}
+              </View>
+            </View>
+            {renderTablePill(70, 'muk-event-space', {
+              width: 155,
+              height: 300,
+              borderRadius: 14,
+              maxVisibleChecks: 30,
+              displayLabel: 'Event Space',
+              containerStyle: styles.mukilteoEventSpaceBox,
+            })}
+          </View>
+        </View>
+      </View>
+    </View>
+  );
+
   return (
     <View>
       <Text style={styles.title}>Assign Check #{check.checkNumber}</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.scrollView}>
-        <View style={styles.layoutBox}>
-          {tableColumns.map((column, columnIndex) => (
-            <View
-              key={column.key}
-              style={[
-                styles.column,
-                columnIndex < tableColumns.length - 1 && styles.columnGap,
-              ]}
-            >
-              {column.rows.map((row, rowIndex) => (
-                <View
-                  key={`${column.key}-row-${rowIndex}`}
-                  style={[styles.row, rowIndex === column.rows.length - 1 && styles.rowLast]}
-                >
-                  {row.map((tableNum) => {
-                    const table = tableByNumber.get(tableNum);
-                    if (!table) return <View key={`missing-${tableNum}`} style={styles.placeholder} />;
-                    const isLastInRow = row[row.length - 1] === tableNum;
-                    return (
-                      <View key={`table-${tableNum}`} style={[styles.cell, isLastInRow && styles.cellLast]}>
-                        <TableCircle
-                          table={table}
-                          checks={state.checks}
-                          onPress={() => handleAssign(table.id)}
-                          compact
-                        />
-                      </View>
-                    );
-                  })}
-                </View>
-              ))}
-            </View>
-          ))}
-        </View>
-      </ScrollView>
+      <View style={styles.assignLayoutWrap}>
+        {restaurantId === 'everett'
+          ? renderEverettGroupedLayout()
+          : restaurantId === 'mukilteo'
+            ? renderMukilteoGroupedLayout()
+          : renderDefaultLayout()}
+      </View>
     </View>
   );
 }
@@ -169,8 +351,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: 'white',
   },
-  scrollView: {
-    maxHeight: 400,
+  assignLayoutWrap: {
+    paddingBottom: 8,
+    alignSelf: 'stretch',
   },
   layoutBox: {
     paddingVertical: 4,
@@ -192,6 +375,83 @@ const styles = StyleSheet.create({
   columnGap: {
     marginRight: 14,
   },
+  groupStack: {
+    justifyContent: 'flex-start',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  groupRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  everettTopGroupRow: {
+    gap: 4.4,
+  },
+  everettWideCell: {
+    marginRight: 31,
+  },
+  everettSingleBubble: {
+    minWidth: 0,
+  },
+  mukilteoTenCard: {
+    minWidth: 0,
+  },
+  mukilteoTenLane: {
+    width: 274,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mukilteoSceneStack: {
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  mukilteoPatioSection: {
+    alignItems: 'flex-start',
+    gap: 6,
+  },
+  mukilteoSectionLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#4d5f73',
+    marginLeft: 4,
+  },
+  mukilteoCustomCell: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mukilteoEventSpaceBox: {
+    width: 160,
+    height: 300,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mukilteoSixSlot: {
+    width: 80,
+    height: 156,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mukilteoBottomAlignRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 10,
+    marginTop: 0,
+  },
+  mukilteoZigZagStack: {
+    alignItems: 'flex-start',
+    gap: 0,
+  },
+  mukilteoZigRow: {
+    width: 135,
+    alignItems: 'flex-start',
+  },
+  mukilteoZigRowOffset: {
+    alignItems: 'flex-end',
+  },
+  mukilteoThirtyLower: {
+    marginBottom: -30,
+  },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -199,6 +459,9 @@ const styles = StyleSheet.create({
   },
   rowLast: {
     marginBottom: 0,
+  },
+  mukilteo3134Row: {
+    marginBottom: 35,
   },
   cell: {
     width: 64,

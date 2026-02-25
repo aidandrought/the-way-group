@@ -16,7 +16,6 @@ export function ChecksTab() {
     seeding,
     checksLoaded,
     tablesLoaded,
-    clearAllAssignments,
     setCheckColor,
   } = useApp();
   const [colorCheck, setColorCheck] = useState<Check | null>(null);
@@ -28,7 +27,6 @@ export function ChecksTab() {
     () => new Map(state.tables.map(table => [table.id, table] as const)),
     [state.tables]
   );
-
   if (error) {
     return (
       <View style={{ padding: 16 }}>
@@ -42,9 +40,6 @@ export function ChecksTab() {
       <View style={{ padding: 16, flex: 1 }}>
         <View style={styles.header}>
           <Text style={styles.title}>Checks</Text>
-          <TouchableOpacity onPress={clearAllAssignments} style={styles.clearButton}>
-            <Text style={styles.clearButtonText}>Clear all Checks</Text>
-          </TouchableOpacity>
         </View>
         <Text style={{ marginBottom: 8 }}>No data found in Firestore.</Text>
         {__DEV__ && !seeding && (
@@ -66,9 +61,6 @@ export function ChecksTab() {
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Checks</Text>
-        <TouchableOpacity onPress={clearAllAssignments} style={styles.clearButton}>
-          <Text style={styles.clearButtonText}>Clear all Checks</Text>
-        </TouchableOpacity>
       </View>
       <FlatList
         data={checksSorted}
@@ -134,20 +126,7 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  clearButton: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#545454',
-    backgroundColor: '#b9eaf8',
-  },
-  clearButtonText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#545454',
+    justifyContent: 'flex-start',
   },
   grid: {
     paddingBottom: 24,

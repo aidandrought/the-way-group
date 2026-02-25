@@ -30,6 +30,8 @@ export function TableDetailsSheet({ table, onClose }: TableDetailsSheetProps) {
     () => state.checks.filter(check => check.tableId === table.id),
     [state.checks, table.id]
   );
+  const hasTableHighlight = !!table.color;
+  const canClearTable = assignedChecks.length > 0 || hasTableHighlight;
 
   const getStatusStyle = (status: StatusColor | undefined) => {
     if (status === 'green') {
@@ -83,7 +85,7 @@ export function TableDetailsSheet({ table, onClose }: TableDetailsSheetProps) {
       <View style={styles.header}>
         <Text style={styles.title}>Table {table.tableNumber}</Text>
         <View style={styles.headerButtons}>
-          {assignedChecks.length > 0 && (
+          {canClearTable && (
             <>
               <Pressable onPress={onClose} style={styles.okButton}>
                 <Text style={styles.okText}>OK</Text>
