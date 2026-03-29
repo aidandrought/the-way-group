@@ -1,14 +1,66 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useMemo, useState } from 'react';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { BottomSheet } from '../components/BottomSheet';
 import { ColorPickerSheet } from '../components/ColorPickerSheet';
 import { TableCircle } from '../components/TableCircle';
 import { TableDetailsSheet } from '../components/TableDetailsSheet';
+import { MILL_CREEK_CANVAS_HEIGHT, MILL_CREEK_CANVAS_WIDTH, MILL_CREEK_TABLE_LAYOUT } from '../constants/millCreekLayout';
+import { POE_BAR_LAYOUT, POE_CANVAS_HEIGHT, POE_CANVAS_WIDTH, POE_TABLE_LAYOUT } from '../constants/poeLayout';
+import { getTableDisplayLabel } from '../constants/tableLabels';
 import { getTableLayoutColumns } from '../constants/tableLayouts';
+import { getStatusSurface, uiTheme } from '../constants/uiTheme';
 import { useApp } from '../contexts/AppContext';
 import { Table } from '../types';
 
+const POE_TABLE_LABELS: Record<number, string> = {
+  1: 'B 1',
+  2: 'B 2',
+  3: 'B 3',
+  4: 'B 4',
+  5: 'B 5',
+  6: 'B 6',
+  7: 'Bar',
+  8: 'Bar',
+  9: 'D 1',
+  10: 'D 2',
+  11: 'D 3',
+  12: 'D 4',
+  13: 'D 5',
+  14: 'D 6',
+  15: 'H 1',
+  16: 'H 2',
+  17: 'H 3',
+  18: 'H 4',
+  19: 'H 5',
+  20: 'H 6',
+  21: 'W 1',
+  22: 'W 2',
+  23: 'W 3',
+  24: 'W 4',
+  25: 'W 5',
+  26: 'W 6',
+  27: 'W 7',
+  28: 'W 8',
+  29: 'W 9',
+  30: 'W 10',
+  31: 'W 11',
+  32: 'W 12',
+  33: 'W 13',
+  34: 'P 1',
+  35: 'P 2',
+  36: 'P 3',
+  37: 'P 4',
+  38: 'P 5',
+};
+const POE_TOP_INSET = 136;
+const MUKILTEO_CANVAS_WIDTH = 700;
+const MUKILTEO_CANVAS_HEIGHT = 800;
+const MUKILTEO_TABLES_VISIBLE_HEIGHT_OFFSET = 132;
+const MILL_CREEK_TABLES_VISIBLE_HEIGHT_OFFSET = 285;
+
 export function TablesTab() {
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const [availableWidth, setAvailableWidth] = useState(0);
   const {
     state,
     restaurantId,
@@ -21,8 +73,8 @@ export function TablesTab() {
     setTableColor,
   } = useApp();
   const [colorTable, setColorTable] = useState<Table | null>(null);
-  const horizontalScrollRef = useRef<ScrollView | null>(null);
-  const didAutoScrollMukilteoRef = useRef(false);
+  const layoutWidth = availableWidth || windowWidth;
+  const contentWidth = Math.max(280, layoutWidth - 32);
   const tableByNumber = useMemo(() => {
     const map = new Map<number, Table>();
     state.tables.forEach(table => map.set(table.tableNumber, table));
@@ -32,10 +84,70 @@ export function TablesTab() {
     () => getTableLayoutColumns(restaurantId),
     [restaurantId]
   );
+  const counterRotateMukilteoContent = restaurantId === 'mukilteo';
+  const isPoe = restaurantId === 'everett';
+  const isMillCreek = restaurantId === 'mill-creek';
+  const isMukilteo = restaurantId === 'mukilteo';
+  const useLargeCompactCheckText = isPoe || isMillCreek;
+  const isSmallScreen = contentWidth < 900;
+  const poeAvailableHeight = Math.max(420, windowHeight - 220);
+  const smallScreenPoeScale = useMemo(
+    () => Math.min(1, Math.max(0.5, poeAvailableHeight / POE_CANVAS_HEIGHT)),
+    [poeAvailableHeight]
+  );
+  const poeScale = useMemo(
+    () => (isSmallScreen ? smallScreenPoeScale : Math.min(1, contentWidth / POE_CANVAS_WIDTH)),
+    [contentWidth, isSmallScreen, smallScreenPoeScale]
+  );
+  const poeScaledHeight = useMemo(
+    () => (POE_CANVAS_HEIGHT + POE_TOP_INSET) * poeScale,
+    [poeScale]
+  );
+  const poeScaledWidth = useMemo(
+    () => POE_CANVAS_WIDTH * poeScale,
+    [poeScale]
+  );
+  const millCreekScale = useMemo(
+    () => {
+      const availableHeight = Math.max(420, windowHeight - MILL_CREEK_TABLES_VISIBLE_HEIGHT_OFFSET);
+      return Math.min(1, availableHeight / MILL_CREEK_CANVAS_HEIGHT);
+    },
+    [windowHeight]
+  );
+  const millCreekScaledHeight = useMemo(
+    () => MILL_CREEK_CANVAS_HEIGHT * millCreekScale,
+    [millCreekScale]
+  );
+  const millCreekScaledWidth = useMemo(
+    () => MILL_CREEK_CANVAS_WIDTH * millCreekScale,
+    [millCreekScale]
+  );
+  const mukilteoScale = useMemo(
+    () => {
+      const availableHeight = Math.max(420, windowHeight - MUKILTEO_TABLES_VISIBLE_HEIGHT_OFFSET);
+      return Math.min(1, availableHeight / MUKILTEO_CANVAS_HEIGHT);
+    },
+    [windowHeight]
+  );
+  const mukilteoScaledHeight = useMemo(
+    () => MUKILTEO_CANVAS_HEIGHT * mukilteoScale,
+    [mukilteoScale]
+  );
+  const mukilteoScaledWidth = useMemo(
+    () => MUKILTEO_CANVAS_WIDTH * mukilteoScale,
+    [mukilteoScale]
+  );
+  const mukilteoScaledFrameWidth = useMemo(
+    () => mukilteoScaledWidth + (contentWidth < 500 ? 60 : 24),
+    [contentWidth, mukilteoScaledWidth]
+  );
+  const poeNeedsHorizontalScroll = poeScaledWidth > contentWidth;
+  const getMillCreekMaxVisibleChecks = (width: number, height: number) => {
+    if (width >= 300) return 12;
+    if (height >= 120 || width >= 180) return 8;
+    return 5;
+  };
 
-  useEffect(() => {
-    didAutoScrollMukilteoRef.current = false;
-  }, [restaurantId]);
   if (error) {
     return (
       <View style={{ padding: 16 }}>
@@ -96,28 +208,16 @@ export function TablesTab() {
               onPress={() => setSelectedTable(table)}
               onLongPress={() => setColorTable(table)}
               compact
+              displayLabel={getTableDisplayLabel(restaurantId, table.tableNumber)}
+              counterRotateContent={counterRotateMukilteoContent}
+              compactCheckTextSize={useLargeCompactCheckText ? 15 : undefined}
+              compactCheckLineHeight={useLargeCompactCheckText ? 20 : undefined}
+              compactLabelFontSize={isMukilteo ? 13 : undefined}
+              compactLabelLineHeight={isMukilteo ? 14 : undefined}
             />
           </View>
         );
       })}
-    </View>
-  );
-
-  const renderGroupCard = (
-    key: string,
-    rows: Array<Array<number | null>>,
-    options?: { cellStyle?: object; cardStyle?: object; rowStyle?: object }
-  ) => (
-    <View key={key} style={[styles.column, options?.cardStyle]}>
-      {rows.map((row, rowIndex) =>
-        renderTableRow(
-          row,
-          `${key}-row-${rowIndex}`,
-          rowIndex === rows.length - 1,
-          options?.cellStyle,
-          options?.rowStyle
-        )
-      )}
     </View>
   );
 
@@ -143,11 +243,73 @@ export function TablesTab() {
           onPress={() => setSelectedTable(table)}
           onLongPress={() => setColorTable(table)}
           compact
+          counterRotateContent={counterRotateMukilteoContent}
+          compactCheckTextSize={useLargeCompactCheckText ? 15 : undefined}
+          compactCheckLineHeight={useLargeCompactCheckText ? 20 : undefined}
+          compactLabelFontSize={isMukilteo ? 13 : undefined}
+          compactLabelLineHeight={isMukilteo ? 14 : undefined}
           width={options?.width}
           height={options?.height}
-          borderRadius={options?.borderRadius}
+          borderRadius={options?.borderRadius || undefined}
           maxVisibleChecks={options?.maxVisibleChecks}
-          displayLabel={options?.displayLabel}
+          displayLabel={options?.displayLabel ?? getTableDisplayLabel(restaurantId, table.tableNumber)}
+        />
+      </View>
+    );
+  };
+
+  const renderMergedPoeBar = () => {
+    const leftBarTable = tableByNumber.get(7);
+    const rightBarTable = tableByNumber.get(8);
+    if (!leftBarTable || !rightBarTable) return null;
+    const mergedBarChecks = state.checks
+      .filter(check => check.tableId === leftBarTable.id || check.tableId === rightBarTable.id)
+      .sort((a, b) => a.checkNumber - b.checkNumber);
+    const mergedBarColor =
+      leftBarTable.color ??
+      rightBarTable.color ??
+      (mergedBarChecks.length === 1 ? mergedBarChecks[0].color : undefined);
+    const mergedBarTone = getStatusSurface(mergedBarColor, mergedBarChecks.length > 0);
+    const visibleBarChecks = mergedBarChecks.slice(0, 10);
+    const hasOverflow = mergedBarChecks.length > visibleBarChecks.length;
+    const mergedBarSummary = visibleBarChecks.length > 0
+      ? `#${visibleBarChecks.map((check, index) => {
+          const isLastVisible = index === visibleBarChecks.length - 1;
+          return hasOverflow && isLastVisible ? `${check.checkNumber}...` : `${check.checkNumber}`;
+        }).join(', ')}`
+      : null;
+    return (
+      <View style={[styles.poeAbs, POE_BAR_LAYOUT]}>
+        <View
+          style={[
+            styles.poeMergedBarSurface,
+            {
+              backgroundColor: mergedBarTone.backgroundColor,
+              borderColor: mergedBarTone.borderColor,
+            },
+          ]}
+        >
+          <Text style={[styles.poeMergedBarText, { color: mergedBarTone.textColor }]}>Bar</Text>
+          {mergedBarSummary && (
+            <Text
+              style={[styles.poeMergedBarChecks, { color: mergedBarTone.textColor }]}
+              numberOfLines={2}
+            >
+              {mergedBarSummary}
+            </Text>
+          )}
+        </View>
+        <TouchableOpacity
+          onPress={() => setSelectedTable(leftBarTable)}
+          onLongPress={() => setColorTable(leftBarTable)}
+          delayLongPress={250}
+          style={[styles.poeBarTouchZone, { left: 0, width: POE_BAR_LAYOUT.width / 2 }]}
+        />
+        <TouchableOpacity
+          onPress={() => setSelectedTable(rightBarTable)}
+          onLongPress={() => setColorTable(rightBarTable)}
+          delayLongPress={250}
+          style={[styles.poeBarTouchZone, { left: POE_BAR_LAYOUT.width / 2, width: POE_BAR_LAYOUT.width / 2 }]}
         />
       </View>
     );
@@ -172,145 +334,276 @@ export function TablesTab() {
   );
 
   const renderEverettGroupedLayout = () => (
-    <View style={styles.layoutBox}>
-      <View style={[styles.groupStack, styles.columnGap]}>
-        <View style={[styles.groupRow, styles.everettTopGroupRow]}>
-          {renderGroupCard('everett-1to6', [[1, 2, 3, 4, 5, 6]], {
-            cellStyle: styles.everettWideCell,
-          })}
-          {renderGroupCard('everett-10', [[10]], {
-            cardStyle: styles.everettSingleBubble,
-          })}
+    <View style={styles.poeLayoutBox}>
+      <View style={[styles.poeScaledFrame, { height: poeScaledHeight, width: poeScaledWidth }]}>
+        <View
+          style={[
+            styles.poeCanvas,
+            {
+              transformOrigin: 'top left',
+              transform: [
+                { translateY: POE_TOP_INSET },
+                { scale: poeScale },
+              ],
+            },
+          ]}
+        >
+        {renderMergedPoeBar()}
+        {POE_TABLE_LAYOUT.filter(layout => layout.tableNumber !== 7 && layout.tableNumber !== 8).map(layout =>
+          renderTablePill(layout.tableNumber, layout.key, {
+            width: layout.width,
+            height: layout.height,
+            borderRadius: layout.borderRadius,
+            maxVisibleChecks: layout.width >= 220 ? 12 : layout.width >= 138 ? 14 : layout.width >= 108 ? 10 : 8,
+            displayLabel: POE_TABLE_LABELS[layout.tableNumber],
+            containerStyle: [styles.poeAbs, { left: layout.left, top: layout.top }],
+          })
+        )}
         </View>
-        {renderGroupCard('everett-20to28', [[20, 21, 22, 23, 24, 25, 26, 27, 28]])}
-        {renderGroupCard('everett-40to44', [[40, null, 41, null, 42, null, 43, null, 44]])}
-      </View>
-
-      <View style={[styles.groupStack, styles.columnGap]}>
-        {renderGroupCard('everett-11to16', [[11, 12], [13, 14], [15, 16]])}
-      </View>
-
-      <View style={styles.groupRow}>
-        {renderGroupCard('everett-30to35', [[30, 31], [32, 33], [34, 35]])}
-        {renderGroupCard('everett-36to39', [[36], [37], [38], [39]])}
       </View>
     </View>
   );
 
   const renderMukilteoGroupedLayout = () => (
-    <View style={styles.layoutBox}>
-      <View style={styles.mukilteoSceneStack}>
-        <View style={styles.mukilteoPatioSection}>
-          <Text style={styles.mukilteoSectionLabel}>Patio:</Text>
-          {renderGroupCard('muk-zone4-patio', [[69, 68, 67, 66, 65, 64, 63, 62, 61, 60]])}
-        </View>
-
-        <View style={styles.groupRow}>
-          <View style={[styles.groupStack, styles.columnGap]}>
-            <View style={styles.groupStack}>
-              {renderTablePill(6, 'muk-zone3-6', {
-                width: 54,
-                height: 126,
-                borderRadius: 14,
-                maxVisibleChecks: 10,
-                containerStyle: styles.mukilteoSixSlot,
-              })}
-              {renderGroupCard('muk-zone2-31to34', [[34], [33], [32], [31]], {
-                cardStyle: styles.everettSingleBubble,
-                rowStyle: styles.mukilteo3134Row,
-              })}
-            </View>
-          </View>
-
-          <View style={[styles.groupStack, styles.columnGap]}>
-            <View style={styles.mukilteoZigZagStack}>
-              <View style={styles.mukilteoZigRow}>
-                {renderTablePill(44, 'muk-zone3-44', { width: 62, height: 62, borderRadius: 16, maxVisibleChecks: 8 })}
+    <View style={styles.mukilteoLayoutBox}>
+      <View style={[styles.mukilteoScaledFrame, { width: mukilteoScaledFrameWidth, height: mukilteoScaledHeight }]}>
+        <View
+          style={[
+            styles.mukilteoCanvas,
+            {
+              transformOrigin: 'top left',
+              transform: [{ scale: mukilteoScale }],
+            },
+          ]}
+        >
+          <View style={[styles.mukilteoSceneStack, styles.mukilteoRotatedScene]}>
+            <View style={styles.mukilteoPatioSection}>
+              <View style={styles.mukilteoPlainRow}>
+                {[69, 68, 67, 66, 65, 64, 63, 62, 61, 60].map((tableNumber, index) =>
+                  renderTablePill(tableNumber, `muk-zone4-patio-${tableNumber}`, {
+                    width: 62,
+                    height: 62,
+                    borderRadius: 16,
+                    maxVisibleChecks: 8,
+                    containerStyle: [
+                      styles.mukilteoPlainCell,
+                      tableNumber === 65 && styles.mukilteoPatioWalkway,
+                      index === 9 && styles.mukilteoPlainCellLast,
+                    ],
+                  })
+                )}
               </View>
-              <View style={[styles.mukilteoZigRow, styles.mukilteoZigRowOffset]}>
-                {renderTablePill(43, 'muk-zone3-43', { width: 62, height: 62, borderRadius: 16, maxVisibleChecks: 8 })}
-              </View>
-              <View style={styles.mukilteoZigRow}>
-                {renderTablePill(42, 'muk-zone3-42', { width: 62, height: 62, borderRadius: 16, maxVisibleChecks: 8 })}
-              </View>
-              <View style={[styles.mukilteoZigRow, styles.mukilteoZigRowOffset]}>
-                {renderTablePill(41, 'muk-zone3-41', { width: 62, height: 62, borderRadius: 16, maxVisibleChecks: 8 })}
-              </View>
-              <View style={styles.mukilteoZigRow}>
-                {renderTablePill(40, 'muk-zone3-40', { width: 62, height: 62, borderRadius: 16, maxVisibleChecks: 8 })}
+              <View style={styles.mukilteoCounterRotatedPatioLabel}>
+                <Text style={styles.mukilteoSectionLabel}>Patio:</Text>
               </View>
             </View>
-            <View style={styles.mukilteoBottomAlignRow}>
-              {renderTablePill(5, 'muk-zone2-5', {
-                width: 62,
-                height: 156,
-                borderRadius: 16,
-                maxVisibleChecks: 14,
-              })}
-              {renderTablePill(30, 'muk-zone2-30', {
-                width: 62,
-                height: 62,
-                borderRadius: 16,
-                maxVisibleChecks: 8,
-                containerStyle: styles.mukilteoThirtyLower,
-              })}
-            </View>
-          </View>
 
-          <View style={styles.groupRow}>
-            <View style={styles.groupStack}>
-              {renderGroupCard('muk-zone3-50s', [[52, 51, 50]])}
+            <View style={[styles.groupRow, styles.mukilteoFloorShift]}>
+              <View style={[styles.groupStack, styles.columnGap]}>
+                <View style={styles.groupStack}>
+                    {renderTablePill(6, 'muk-zone3-6', {
+                      width: 54,
+                      height: 126,
+                      borderRadius: 14,
+                      maxVisibleChecks: 10,
+                      containerStyle: [styles.mukilteoSixSlot, styles.mukilteoH5Align],
+                    })}
+                  <View style={styles.mukilteo3134Stack}>
+                {renderTablePill(34, 'muk-zone2-34', {
+                  width: 64,
+                  height: 64,
+                  borderRadius: 18,
+                  maxVisibleChecks: 8,
+                  containerStyle: styles.mukilteo3134TopCell,
+                })}
+                    {renderTablePill(33, 'muk-zone2-33', {
+                      width: 64,
+                      height: 64,
+                      borderRadius: 18,
+                      maxVisibleChecks: 8,
+                      containerStyle: styles.mukilteo3134Cell,
+                    })}
+                    {renderTablePill(32, 'muk-zone2-32', {
+                      width: 64,
+                      height: 64,
+                      borderRadius: 18,
+                      maxVisibleChecks: 8,
+                      containerStyle: styles.mukilteo3134Cell,
+                    })}
+                {renderTablePill(31, 'muk-zone2-31', {
+                  width: 64,
+                  height: 64,
+                  borderRadius: 18,
+                  maxVisibleChecks: 8,
+                  containerStyle: styles.mukilteoTopRightBooth,
+                })}
+                  </View>
+                </View>
+              </View>
+
+              <View style={[styles.groupStack, styles.columnGap]}>
+                <View style={styles.mukilteoZigZagStack}>
+                  <View style={styles.mukilteoZigRow}>
+                    {renderTablePill(44, 'muk-zone3-44', { width: 62, height: 62, borderRadius: 16, maxVisibleChecks: 8, containerStyle: styles.mukilteoLaneCellShift })}
+                  </View>
+                  <View style={[styles.mukilteoZigRow, styles.mukilteoZigRowOffset]}>
+                    {renderTablePill(43, 'muk-zone3-43', { width: 62, height: 62, borderRadius: 16, maxVisibleChecks: 8 })}
+                  </View>
+                  <View style={styles.mukilteoZigRow}>
+                    {renderTablePill(42, 'muk-zone3-42', { width: 62, height: 62, borderRadius: 16, maxVisibleChecks: 8, containerStyle: styles.mukilteoLaneCellShift })}
+                  </View>
+                  <View style={[styles.mukilteoZigRow, styles.mukilteoZigRowOffset]}>
+                    {renderTablePill(41, 'muk-zone3-41', { width: 62, height: 62, borderRadius: 16, maxVisibleChecks: 8 })}
+                  </View>
+                  <View style={styles.mukilteoZigRow}>
+                    {renderTablePill(40, 'muk-zone3-40', { width: 62, height: 62, borderRadius: 16, maxVisibleChecks: 8, containerStyle: styles.mukilteoLaneCellShift })}
+                  </View>
+                </View>
+                <View style={styles.mukilteoBottomAlignRow}>
+                  {renderTablePill(5, 'muk-zone2-5', {
+                    width: 62,
+                    height: 156,
+                    borderRadius: 16,
+                    maxVisibleChecks: 14,
+                    containerStyle: styles.mukilteoCenterLaneShift,
+                  })}
+                  {renderTablePill(30, 'muk-zone2-30', {
+                    width: 62,
+                    height: 62,
+                    borderRadius: 16,
+                    maxVisibleChecks: 8,
+                    containerStyle: [styles.mukilteoThirtyRaised, styles.mukilteoTopLeftBooth],
+                  })}
+                </View>
+              </View>
+
               <View style={styles.groupRow}>
-                {renderTablePill(4, 'muk-zone1-4', { width: 62, height: 136, borderRadius: 16, maxVisibleChecks: 10 })}
-                {renderTablePill(3, 'muk-zone1-3', { width: 62, height: 136, borderRadius: 16, maxVisibleChecks: 10 })}
-                {renderTablePill(2, 'muk-zone1-2', { width: 62, height: 136, borderRadius: 16, maxVisibleChecks: 10 })}
-                {renderTablePill(1, 'muk-zone1-1', { width: 62, height: 136, borderRadius: 16, maxVisibleChecks: 10 })}
-              </View>
-              <View style={styles.mukilteoTenLane}>
-                {renderTablePill(10, 'muk-zone1-10', {
-                  width: 250,
-                  height: 62,
+                <View style={styles.groupStack}>
+                  <View style={styles.mukilteoPlainRow}>
+                    {[52, 51, 50].map((tableNumber, index) =>
+                      renderTablePill(tableNumber, `muk-zone3-50s-${tableNumber}`, {
+                        width: 62,
+                        height: 62,
+                        borderRadius: 16,
+                        maxVisibleChecks: 8,
+                        containerStyle: [styles.mukilteoPlainCell, index === 2 && styles.mukilteoPlainCellLast],
+                      })
+                    )}
+                  </View>
+                  <View style={styles.mukilteoHRow}>
+                    {renderTablePill(4, 'muk-zone1-4', { width: 62, height: 136, borderRadius: 16, maxVisibleChecks: 10 })}
+                    {renderTablePill(3, 'muk-zone1-3', { width: 62, height: 136, borderRadius: 16, maxVisibleChecks: 10 })}
+                    {renderTablePill(2, 'muk-zone1-2', { width: 62, height: 136, borderRadius: 16, maxVisibleChecks: 10 })}
+                    {renderTablePill(1, 'muk-zone1-1', { width: 62, height: 136, borderRadius: 16, maxVisibleChecks: 10 })}
+                  </View>
+                  <View style={styles.mukilteoTenLane}>
+                    {renderTablePill(10, 'muk-zone1-10', {
+                      width: 250,
+                      height: 62,
+                      borderRadius: 14,
+                      maxVisibleChecks: 18,
+                    })}
+                  </View>
+                </View>
+                {renderTablePill(70, 'muk-event-space', {
+                  width: 155,
+                  height: 300,
                   borderRadius: 14,
-                  maxVisibleChecks: 18,
+                  maxVisibleChecks: 30,
+                  displayLabel: 'Event Space',
+                  containerStyle: styles.mukilteoEventSpaceBox,
                 })}
               </View>
             </View>
-            {renderTablePill(70, 'muk-event-space', {
-              width: 155,
-              height: 300,
-              borderRadius: 14,
-              maxVisibleChecks: 30,
-              displayLabel: 'Event Space',
-              containerStyle: styles.mukilteoEventSpaceBox,
-            })}
           </View>
+        </View>
+      </View>
+    </View>
+  );
+
+  const renderMillCreekLayout = () => (
+    <View style={styles.millCreekLayoutBox}>
+      <View style={[styles.millCreekScaledFrame, { width: millCreekScaledWidth, height: millCreekScaledHeight }]}>
+        <View
+          style={[
+            styles.millCreekCanvas,
+            {
+              transformOrigin: 'top left',
+              transform: [{ scale: millCreekScale }],
+            },
+          ]}
+        >
+        <View style={[styles.millCreekBlock, { left: 44, top: 28, width: 460, height: 96 }]} />
+
+        {MILL_CREEK_TABLE_LAYOUT.map(layout =>
+          renderTablePill(layout.tableNumber, layout.key, {
+            width: layout.width,
+            height: layout.height,
+            borderRadius: layout.borderRadius,
+            maxVisibleChecks: getMillCreekMaxVisibleChecks(layout.width, layout.height),
+            containerStyle: [styles.millCreekAbs, { left: layout.left, top: layout.top }],
+          })
+        )}
         </View>
       </View>
     </View>
   );
 
   return (
-    <View style={styles.container}>
-      <ScrollView
-        ref={horizontalScrollRef}
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
-        onContentSizeChange={() => {
-          if (restaurantId !== 'mukilteo') return;
-          if (didAutoScrollMukilteoRef.current) return;
-          didAutoScrollMukilteoRef.current = true;
-          requestAnimationFrame(() => {
-            horizontalScrollRef.current?.scrollToEnd({ animated: false });
-          });
-        }}
-      >
-        {restaurantId === 'everett'
-          ? renderEverettGroupedLayout()
-          : restaurantId === 'mukilteo'
+    <View
+      style={styles.container}
+      onLayout={(event) => {
+        const nextWidth = event.nativeEvent.layout.width;
+        if (Math.abs(nextWidth - availableWidth) > 1) {
+          setAvailableWidth(nextWidth);
+        }
+      }}
+    >
+      {restaurantId === 'everett' ? (
+        isSmallScreen || poeNeedsHorizontalScroll ? (
+          <ScrollView
+            showsVerticalScrollIndicator
+            contentContainerStyle={styles.poeSmallVerticalContent}
+          >
+            <ScrollView
+              horizontal
+              nestedScrollEnabled
+              showsHorizontalScrollIndicator
+              bounces={false}
+              alwaysBounceHorizontal={false}
+              contentOffset={{ x: 0, y: 0 }}
+              contentContainerStyle={styles.poeSmallHorizontalContent}
+            >
+              {renderEverettGroupedLayout()}
+            </ScrollView>
+          </ScrollView>
+        ) : (
+          <ScrollView
+            showsVerticalScrollIndicator
+            contentContainerStyle={styles.poeScrollContent}
+          >
+            {renderEverettGroupedLayout()}
+          </ScrollView>
+        )
+      ) : isMillCreek ? (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator
+          contentContainerStyle={styles.millCreekScrollContent}
+        >
+          {renderMillCreekLayout()}
+        </ScrollView>
+      ) : (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.scrollContent}
+        >
+          {restaurantId === 'mukilteo'
             ? renderMukilteoGroupedLayout()
-          : renderDefaultLayout()}
-      </ScrollView>
+            : renderDefaultLayout()}
+        </ScrollView>
+      )}
 
       <BottomSheet
         isOpen={!!state.selectedTable}
@@ -324,14 +617,15 @@ export function TablesTab() {
         )}
       </BottomSheet>
 
-      <ColorPickerSheet
-        isOpen={!!colorTable}
-        onClose={() => setColorTable(null)}
-        title={colorTable ? `Set color for Table ${colorTable.tableNumber}` : 'Set color'}
-        onSelect={async (color) => {
-          if (!colorTable) return;
-          await setTableColor(colorTable.id, color);
-          setColorTable(null);
+        <ColorPickerSheet
+          isOpen={!!colorTable}
+          onClose={() => setColorTable(null)}
+          title={colorTable ? `Set color for Table ${colorTable.tableNumber}` : 'Set color'}
+          selectedColor={colorTable?.color ?? null}
+          onSelect={async (color) => {
+            if (!colorTable) return;
+            await setTableColor(colorTable.id, color);
+            setColorTable(null);
         }}
       />
     </View>
@@ -341,23 +635,34 @@ export function TablesTab() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 16,
-    backgroundColor: '#fafafa',
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: '600',
-    color: '#000000',
-    marginBottom: 16,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'flex-start',
+    paddingTop: 0,
+    paddingHorizontal: 16,
+    paddingBottom: 0,
+    backgroundColor: uiTheme.colors.appBackground,
   },
   scrollContent: {
-    paddingBottom: 12,
+    paddingBottom: 0,
     paddingRight: 16,
+    alignItems: 'flex-start',
+  },
+  poeScrollContent: {
+    paddingBottom: 0,
+    alignItems: 'center',
+  },
+  poeSmallVerticalContent: {
+    paddingBottom: 0,
+    alignItems: 'flex-start',
+  },
+  poeSmallHorizontalContent: {
+    alignItems: 'flex-start',
+  },
+  poeLayoutBox: {
+    alignItems: 'flex-start',
+  },
+  poeScaledFrame: {
+    overflow: 'hidden',
+    alignItems: 'flex-start',
+    justifyContent: 'flex-start',
   },
   layoutBox: {
     paddingVertical: 4,
@@ -365,18 +670,32 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
   },
+  mukilteoLayoutBox: {
+    alignItems: 'flex-start',
+    paddingBottom: 0,
+    paddingTop: 22,
+  },
+  mukilteoScaledFrame: {
+    overflow: 'visible',
+    alignItems: 'flex-start',
+    justifyContent: 'flex-start',
+  },
+  mukilteoCanvas: {
+    width: MUKILTEO_CANVAS_WIDTH,
+    height: MUKILTEO_CANVAS_HEIGHT,
+    alignItems: 'flex-start',
+    justifyContent: 'flex-start',
+    paddingTop: 0,
+    paddingBottom: 18,
+  },
   column: {
     paddingHorizontal: 8,
     paddingVertical: 6,
     borderWidth: 1,
-    borderColor: '#d2d2d2',
-    borderRadius: 12,
-    backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 1,
+    borderColor: uiTheme.colors.border,
+    borderRadius: uiTheme.radius.md,
+    backgroundColor: uiTheme.colors.surface,
+    ...uiTheme.shadow.soft,
     minWidth: 86,
     justifyContent: 'flex-start',
   },
@@ -402,6 +721,74 @@ const styles = StyleSheet.create({
   everettSingleBubble: {
     minWidth: 0,
   },
+  poeCanvas: {
+    width: POE_CANVAS_WIDTH,
+    height: POE_CANVAS_HEIGHT,
+    position: 'relative',
+  },
+  poeAbs: {
+    position: 'absolute',
+  },
+  poeMergedBarSurface: {
+    width: '100%',
+    height: '100%',
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 18,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    ...uiTheme.shadow.soft,
+  },
+  poeMergedBarText: {
+    fontSize: 20,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  poeMergedBarChecks: {
+    marginTop: 8,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+    opacity: 0.84,
+    textAlign: 'center',
+  },
+  poeBarTouchZone: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    backgroundColor: 'transparent',
+  },
+  millCreekScrollContent: {
+    alignItems: 'flex-start',
+    paddingBottom: 0,
+    paddingRight: 16,
+  },
+  millCreekLayoutBox: {
+    alignItems: 'center',
+    width: '100%',
+  },
+  millCreekScaledFrame: {
+    overflow: 'hidden',
+    alignItems: 'flex-start',
+    justifyContent: 'flex-start',
+  },
+  millCreekCanvas: {
+    width: MILL_CREEK_CANVAS_WIDTH,
+    height: MILL_CREEK_CANVAS_HEIGHT,
+    position: 'relative',
+  },
+  millCreekAbs: {
+    position: 'absolute',
+  },
+  millCreekBlock: {
+    position: 'absolute',
+    borderWidth: 1,
+    borderColor: uiTheme.colors.borderStrong,
+    backgroundColor: uiTheme.colors.surfaceMuted,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   mukilteoTenCard: {
     minWidth: 0,
   },
@@ -414,15 +801,44 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     gap: 12,
   },
-  mukilteoPatioSection: {
-    alignItems: 'flex-start',
-    gap: 6,
+  mukilteoRotatedScene: {
+    transform: [{ rotate: '180deg' }],
   },
+  mukilteoPatioSection: {
+    alignItems: 'flex-end',
+    gap: 6,
+    marginLeft: 25,
+  },
+  mukilteoFloorShift: {
+      transform: [{ translateX: 15 }],
+    },
+  mukilteoPlainRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  mukilteoPlainCell: {
+      marginRight: 10,
+    },
+  mukilteoPlainCellLast: {
+      marginRight: 0,
+    },
+  mukilteoPatioWalkway: {
+      marginRight: 72,
+    },
   mukilteoSectionLabel: {
     fontSize: 13,
-    fontWeight: '600',
-    color: '#4d5f73',
+    fontWeight: '700',
+    color: uiTheme.colors.inkMuted,
     marginLeft: 4,
+  },
+  mukilteoCounterRotatedPatioLabel: {
+    transform: [{ scaleX: -1 }, { scaleY: -1 }],
+    marginLeft: 0,
+    marginRight: 8,
+  },
+  mukilteoCounterRotatedLabel: {
+    transform: [{ rotate: '180deg' }],
+    alignSelf: 'flex-end',
   },
   mukilteoCustomCell: {
     alignItems: 'center',
@@ -439,6 +855,7 @@ const styles = StyleSheet.create({
     height: 156,
     alignItems: 'center',
     justifyContent: 'center',
+    marginLeft: 26,
   },
   mukilteoBottomAlignRow: {
     flexDirection: 'row',
@@ -446,9 +863,15 @@ const styles = StyleSheet.create({
     gap: 10,
     marginTop: 0,
   },
+  mukilteoHRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
   mukilteoZigZagStack: {
     alignItems: 'flex-start',
     gap: 0,
+    marginLeft: 18,
   },
   mukilteoZigRow: {
     width: 135,
@@ -458,7 +881,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   mukilteoThirtyLower: {
-    marginBottom: -30,
+    marginBottom: 10,
   },
   row: {
     flexDirection: 'row',
@@ -468,8 +891,43 @@ const styles = StyleSheet.create({
   rowLast: {
     marginBottom: 0,
   },
-  mukilteo3134Row: {
-    marginBottom: 35,
+  mukilteo3134Stack: {
+    alignItems: 'center',
+    marginLeft: -6,
+    transform: [{ translateX: 18 }],
+  },
+  mukilteoCenterLaneShift: {
+    marginLeft: 45,
+    transform: [{ translateX: -58 }],
+  },
+  mukilteoLaneCellShift: {
+    transform: [{ translateX: -30 }],
+  },
+  mukilteo3134TopCell: {
+    marginBottom: 16,
+  },
+  mukilteo3134Cell: {
+    marginBottom: 16,
+  },
+  mukilteoThirtyRaised: {
+    marginBottom: 8,
+  },
+  mukilteoTopLeftBooth: {
+    transform: [{ translateY: 22 }, { translateX: -27 }],
+  },
+  mukilteoTopRightBooth: {
+    transform: [{ translateY: 20 }],
+  },
+  mukilteoH5Align: {
+    transform: [{ translateY: -15 },{ translateX: -27 }],
+  },
+  header: {
+    marginBottom: 12,
+  },
+  title: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: uiTheme.colors.ink,
   },
   cell: {
     width: 64,

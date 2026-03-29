@@ -4,7 +4,7 @@
     "slug": "the-way-group",
     "version": "1.0.5",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/tapped-logo.png",
     "scheme": "thewaygroup",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,

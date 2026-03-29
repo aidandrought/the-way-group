@@ -1,9 +1,11 @@
 import { useMemo, useState } from 'react';
-import { FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { FlatList, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { AssignTableSheet } from '../components/AssignTableSheet';
 import { BottomSheet } from '../components/BottomSheet';
 import { CheckCircle } from '../components/CheckCircle';
 import { ColorPickerSheet } from '../components/ColorPickerSheet';
+import { getTableDisplayLabel } from '../constants/tableLabels';
+import { uiTheme } from '../constants/uiTheme';
 import { useApp } from '../contexts/AppContext';
 import type { Check } from '../types';
 
@@ -17,8 +19,18 @@ export function ChecksTab() {
     checksLoaded,
     tablesLoaded,
     setCheckColor,
+    restaurantId,
   } = useApp();
+  const { width } = useWindowDimensions();
+  const [availableWidth, setAvailableWidth] = useState(0);
   const [colorCheck, setColorCheck] = useState<Check | null>(null);
+  const layoutWidth = availableWidth || width;
+  const horizontalPadding = 32;
+  const gridGap = 10;
+  const usableWidth = Math.max(260, layoutWidth - horizontalPadding);
+  const minCardWidth = layoutWidth >= 1000 ? 110 : layoutWidth >= 700 ? 100 : 92;
+  const numColumns = Math.max(3, Math.floor((usableWidth + gridGap) / (minCardWidth + gridGap)));
+  const cardWidth = Math.floor((usableWidth - gridGap * (numColumns - 1)) / numColumns);
   const checksSorted = useMemo(
     () => [...state.checks].sort((a, b) => a.checkNumber - b.checkNumber),
     [state.checks]
@@ -58,26 +70,36 @@ export function ChecksTab() {
     );
   }
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Checks</Text>
-      </View>
+    <View
+      style={styles.container}
+      onLayout={(event) => {
+        const nextWidth = event.nativeEvent.layout.width;
+        if (Math.abs(nextWidth - availableWidth) > 1) {
+          setAvailableWidth(nextWidth);
+        }
+      }}
+    >
       <FlatList
+        key={`checks-grid-${numColumns}`}
         data={checksSorted}
         keyExtractor={(check) => check.id}
-        numColumns={4}
+        numColumns={numColumns}
         contentContainerStyle={styles.grid}
         columnWrapperStyle={styles.row}
         renderItem={({ item }) => {
           const table = item.tableId ? tableById.get(item.tableId) : undefined;
+          const tableLabel = table ? `Table: ${getTableDisplayLabel(restaurantId, table.tableNumber)}` : undefined;
           return (
-            <CheckCircle
-              check={item}
-              tableNumber={table?.tableNumber}
-              tableColor={table?.color}
-              onPress={() => setSelectedCheck(item)}
-              onLongPress={() => setColorCheck(item)}
-            />
+            <View style={[styles.cardWrap, { width: cardWidth }]}>
+              <CheckCircle
+                check={item}
+                tableNumber={table?.tableNumber}
+                tableLabel={tableLabel}
+                tableColor={table?.color}
+                onPress={() => setSelectedCheck(item)}
+                onLongPress={() => setColorCheck(item)}
+              />
+            </View>
           );
         }}
         initialNumToRender={32}
@@ -101,6 +123,7 @@ export function ChecksTab() {
         isOpen={!!colorCheck}
         onClose={() => setColorCheck(null)}
         title={colorCheck ? `Set color for Check ${colorCheck.checkNumber}` : 'Set color'}
+        selectedColor={colorCheck?.color ?? null}
         onSelect={async (color) => {
           if (!colorCheck) return;
           await setCheckColor(colorCheck.id, color);
@@ -114,25 +137,27 @@ export function ChecksTab() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 16,
-    backgroundColor: '#fafafa',
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: '600',
-    color: '#1A1A1A',
-    marginBottom: 16,
+    paddingTop: 4,
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+    backgroundColor: uiTheme.colors.appBackground,
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'flex-start',
+    marginBottom: 12,
+  },
+  title: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: uiTheme.colors.ink,
   },
   grid: {
     paddingBottom: 24,
-    gap: 12,
+    rowGap: 10,
   },
   row: {
     justifyContent: 'space-between',
+  },
+  cardWrap: {
+    minHeight: 74,
   },
 });

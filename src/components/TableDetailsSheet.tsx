@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { getTableDisplayLabel } from '../constants/tableLabels';
+import { STATUS_COLOR_TOKENS, uiTheme } from '../constants/uiTheme';
 import { useApp } from '../contexts/AppContext';
 import { Check, StatusColor, Table } from '../types';
 import { ColorPickerSheet } from './ColorPickerSheet';
@@ -10,16 +12,19 @@ interface TableDetailsSheetProps {
 }
 
 export function TableDetailsSheet({ table, onClose }: TableDetailsSheetProps) {
+  const { width, height } = useWindowDimensions();
   const {
     state,
     assignCheckToTable,
     clearCheck,
     clearTable,
     setCheckColor,
+    restaurantId,
   } = useApp();
 
   const [busy, setBusy] = useState(false);
   const [colorCheck, setColorCheck] = useState<Check | null>(null);
+  const [moveWarningCheck, setMoveWarningCheck] = useState<Check | null>(null);
 
   const checksSorted = useMemo(
     () => [...state.checks].sort((a, b) => a.checkNumber - b.checkNumber),
@@ -30,33 +35,9 @@ export function TableDetailsSheet({ table, onClose }: TableDetailsSheetProps) {
     () => state.checks.filter(check => check.tableId === table.id),
     [state.checks, table.id]
   );
+  const isTabletLayout = Math.min(width, height) >= 768;
   const hasTableHighlight = !!table.color;
   const canClearTable = assignedChecks.length > 0 || hasTableHighlight;
-
-  const getStatusStyle = (status: StatusColor | undefined) => {
-    if (status === 'green') {
-      return {
-        backgroundColor: '#7ECF8F',
-        borderColor: '#3B8B56',
-        borderWidth: 3,
-      };
-    }
-    if (status === 'purple') {
-      return {
-        backgroundColor: '#B58AD9',
-        borderColor: '#6F4C8F',
-        borderWidth: 3,
-      };
-    }
-    if (status === 'blue') {
-      return {
-        backgroundColor: '#68BFE1',
-        borderColor: '#155A75',
-        borderWidth: 3,
-      };
-    }
-    return undefined;
-  };
 
   const handleCheckLongPress = (check: Check) => {
     setColorCheck(check);
@@ -68,27 +49,77 @@ export function TableDetailsSheet({ table, onClose }: TableDetailsSheetProps) {
       return;
     }
 
+    if (check.tableId && check.tableId !== table.id) {
+      setMoveWarningCheck(check);
+      return;
+    }
+
     await assignCheckToTable(check.id, table.id);
+  };
+
+  const handleConfirmMove = async () => {
+    if (!moveWarningCheck) return;
+    await assignCheckToTable(moveWarningCheck.id, table.id);
+    setMoveWarningCheck(null);
   };
 
   const handleClearTable = async () => {
     if (busy) return;
     setBusy(true);
-    await clearTable(table.id);
-    setBusy(false);
-    onClose();
+    try {
+      await clearTable(table.id);
+    } finally {
+      setBusy(false);
+    }
   };
+
+  const currentAssignedTable = moveWarningCheck?.tableId
+    ? state.tables.find(currentTable => currentTable.id === moveWarningCheck.tableId) ?? null
+    : null;
+
+  if (moveWarningCheck && currentAssignedTable) {
+    return (
+      <>
+        <View style={styles.warningContainer}>
+          <Text style={styles.title}>Move Check?</Text>
+          <Text style={styles.message}>
+            This check is already assigned to table {getTableDisplayLabel(restaurantId, currentAssignedTable.tableNumber)}. Are you
+            sure you want to move it to table {getTableDisplayLabel(restaurantId, table.tableNumber)}?
+          </Text>
+          <View style={styles.warningButtonRow}>
+            <Pressable onPress={() => setMoveWarningCheck(null)} style={[styles.warningButton, styles.cancelButton]}>
+              <Text style={styles.cancelText}>Cancel</Text>
+            </Pressable>
+            <Pressable onPress={handleConfirmMove} style={[styles.warningButton, styles.confirmButton]}>
+              <Text style={styles.confirmText}>Move</Text>
+            </Pressable>
+          </View>
+        </View>
+        <ColorPickerSheet
+          isOpen={!!colorCheck}
+          onClose={() => setColorCheck(null)}
+          title={colorCheck ? `Set color for Check ${colorCheck.checkNumber}` : 'Set color'}
+          selectedColor={colorCheck?.color ?? null}
+          onSelect={async (color) => {
+            if (!colorCheck) return;
+            await setCheckColor(colorCheck.id, color);
+            setColorCheck(null);
+          }}
+        />
+      </>
+    );
+  }
 
   return (
     <>
       <View>
       <View style={styles.header}>
-        <Text style={styles.title}>Table {table.tableNumber}</Text>
-        <View style={styles.headerButtons}>
+        <Text style={styles.title}>{getTableDisplayLabel(restaurantId, table.tableNumber)}</Text>
+        <View style={[styles.headerButtons, isTabletLayout && styles.headerButtonsTablet]}>
           {canClearTable && (
             <>
-              <Pressable onPress={onClose} style={styles.okButton}>
-                <Text style={styles.okText}>OK</Text>
+              <Pressable onPress={onClose} style={[styles.okButton, isTabletLayout && styles.okButtonTablet]}>
+                <Text style={[styles.okText, isTabletLayout && styles.okTextTablet]}>OK</Text>
               </Pressable>
               <Pressable
                 onPress={handleClearTable}
@@ -115,9 +146,8 @@ export function TableDetailsSheet({ table, onClose }: TableDetailsSheetProps) {
               delayLongPress={350}
               style={[
                 styles.checkButton,
-                check.color && getStatusStyle(check.color),
-                !check.color && check.tableId === table.id && styles.checkAssignedHere,
-                !check.color && check.tableId && check.tableId !== table.id && styles.checkAssignedElsewhere,
+                check.tableId === table.id && styles.checkAssignedHere,
+                check.tableId && check.tableId !== table.id && styles.checkAssignedElsewhere,
               ]}
             >
               <Text
@@ -136,6 +166,7 @@ export function TableDetailsSheet({ table, onClose }: TableDetailsSheetProps) {
       isOpen={!!colorCheck}
       onClose={() => setColorCheck(null)}
       title={colorCheck ? `Set color for Check ${colorCheck.checkNumber}` : 'Set color'}
+      selectedColor={colorCheck?.color ?? null}
       onSelect={async (color) => {
         if (!colorCheck) return;
         await setCheckColor(colorCheck.id, color);
@@ -147,6 +178,9 @@ export function TableDetailsSheet({ table, onClose }: TableDetailsSheetProps) {
 }
 
 const styles = StyleSheet.create({
+  warningContainer: {
+    alignItems: 'center',
+  },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -157,34 +191,87 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
   },
+  headerButtonsTablet: {
+    gap: 72,
+  },
   title: {
     fontSize: 18,
-    fontWeight: '600',
-    color: '#1A1A1A',
+    fontWeight: '700',
+    color: uiTheme.colors.ink,
+  },
+  message: {
+    marginTop: 12,
+    fontSize: 14,
+    lineHeight: 21,
+    color: uiTheme.colors.inkSoft,
+    textAlign: 'center',
+  },
+  warningButtonRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 20,
+  },
+  warningButton: {
+    minWidth: 104,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: uiTheme.radius.md,
+    alignItems: 'center',
+  },
+  cancelButton: {
+    backgroundColor: uiTheme.colors.surfaceMuted,
+    borderWidth: 1,
+    borderColor: uiTheme.colors.border,
+  },
+  confirmButton: {
+    backgroundColor: uiTheme.colors.primaryStrong,
+  },
+  cancelText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: uiTheme.colors.ink,
+  },
+  confirmText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: uiTheme.colors.surfaceRaised,
   },
   okButton: {
-    padding: 8,
+    paddingVertical: 10,
     paddingHorizontal: 16,
-    backgroundColor: '#4CAF50',
-    borderRadius: 6,
+    backgroundColor: uiTheme.colors.success,
+    borderRadius: uiTheme.radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  okButtonTablet: {
+    minWidth: 132,
+    paddingVertical: 18,
+    paddingHorizontal: 28,
   },
   okText: {
     fontSize: 14,
-    fontWeight: '600',
-    color: 'white',
+    fontWeight: '800',
+    color: '#21432A',
+  },
+  okTextTablet: {
+    fontSize: 18,
   },
   clearTableButton: {
-    padding: 8,
+    paddingVertical: 10,
     paddingHorizontal: 16,
-    backgroundColor: '#f44336',
-    borderRadius: 6,
+    backgroundColor: uiTheme.colors.dangerSurface,
+    borderRadius: uiTheme.radius.md,
+    borderWidth: 1,
+    borderColor: uiTheme.colors.dangerBorder,
   },
   clearTableButtonDisabled: {
     opacity: 0.6,
   },
   clearTableText: {
     fontSize: 14,
-    color: 'white',
+    fontWeight: '800',
+    color: uiTheme.colors.dangerText,
   },
   checksGrid: {
     maxHeight: 400,
@@ -198,30 +285,31 @@ const styles = StyleSheet.create({
     width: 70,
     height: 70,
     borderRadius: 35,
-    borderWidth: 2,
-    borderColor: '#e0e0e0',
-    backgroundColor: 'white',
+    borderWidth: 1.5,
+    borderColor: uiTheme.colors.border,
+    backgroundColor: uiTheme.colors.surfaceRaised,
     justifyContent: 'center',
     alignItems: 'center',
+    ...uiTheme.shadow.soft,
   },
   checkAssignedHere: {
-    borderColor: '#155A75',
-    backgroundColor: '#6FC7E7',
-    borderWidth: 1.8,
-    shadowColor: '#155A75',
+    borderColor: '#183A5B',
+    backgroundColor: STATUS_COLOR_TOKENS.blue.backgroundColor,
+    borderWidth: 2,
+    shadowColor: '#183A5B',
     shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.5,
-    shadowRadius: 6,
-    elevation: 3,
+    shadowOpacity: 0.7,
+    shadowRadius: 34,
+    elevation: 18,
   },
   checkAssignedElsewhere: {
-    borderWidth: 1.8,
-    borderColor: '#26657e',
-    backgroundColor: '#68BFE1',
+    borderColor: STATUS_COLOR_TOKENS.blue.borderColor,
+    backgroundColor: STATUS_COLOR_TOKENS.blue.backgroundColor,
+    borderWidth: 2,
   },
   checkNumber: {
     fontSize: 18,
-    fontWeight: '600',
-    color: '#1A1A1A',
+    fontWeight: '700',
+    color: uiTheme.colors.ink,
   },
 });

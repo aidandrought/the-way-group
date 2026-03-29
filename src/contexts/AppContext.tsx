@@ -4,8 +4,9 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { db } from "../firebaseConfig";
 import type { RestaurantId } from "../constants/restaurants";
 import { getTableNumbersForRestaurant } from "../constants/tableLayouts";
-import type { AppState, Check, Table, StatusColor } from "../types";
+import type { AppState, Check, RestaurantChecklistItem, RestaurantNote, Table, StatusColor, TeamAssignment, TeamAssignmentShift } from "../types";
 const DEVICE_ID_KEY = "deviceId:v1";
+export const NOTE_EXPIRY_MS = 20 * 60 * 60 * 1000;
 const DEFAULT_CHECKS: Check[] = Array.from({ length: 100 }, (_, index) => {
   const checkNumber = index + 1;
   return {
@@ -23,6 +24,26 @@ const buildDefaultTables = (restaurantId: RestaurantId): Table[] =>
     tableNumber,
   }));
 
+const ensureExpectedTables = (restaurantId: RestaurantId, tables: Table[]): Table[] => {
+  const byNumber = new Map<number, Table>();
+  tables.forEach((table) => {
+    if (!byNumber.has(table.tableNumber)) {
+      byNumber.set(table.tableNumber, table);
+    }
+  });
+
+  getTableNumbersForRestaurant(restaurantId).forEach((tableNumber) => {
+    if (!byNumber.has(tableNumber)) {
+      byNumber.set(tableNumber, {
+        id: `table-${tableNumber}`,
+        tableNumber,
+      });
+    }
+  });
+
+  return [...byNumber.values()].sort((a, b) => a.tableNumber - b.tableNumber);
+};
+
 type AppContextType = {
   state: AppState;
   loading: boolean;
@@ -37,13 +58,65 @@ type AppContextType = {
   clearTable: (tableId: string) => Promise<void>;
   assignMultipleChecksToTable: (checkIds: string[], tableId: string) => Promise<void>;
   clearAllAssignments: () => Promise<void>;
+  pendingRecall: { label: string } | null;
+  recallLastClear: () => Promise<void>;
+  dismissRecall: () => void;
   setCheckColor: (checkId: string, color: StatusColor) => Promise<void>;
   setTableColor: (tableId: string, color: StatusColor) => Promise<void>;
+  createNote: (
+    text: string,
+    parentId?: string | null,
+    subject?: string | null,
+    options?: { kind?: "note" | "checklist"; checklistItems?: RestaurantChecklistItem[] }
+  ) => Promise<void>;
+  updateNote: (
+    noteId: string,
+    text: string,
+    subject?: string | null,
+    options?: { kind?: "note" | "checklist"; checklistItems?: RestaurantChecklistItem[] }
+  ) => Promise<void>;
+  deleteNote: (noteId: string) => Promise<void>;
+  deleteAllNotes: () => Promise<void>;
+  toggleNotePinned: (noteId: string) => Promise<void>;
+  toggleNoteChecklistItem: (noteId: string, itemId: string) => Promise<void>;
+  createTeamAssignment: (assignment: {
+    shift: TeamAssignmentShift;
+    role: string;
+    teamMember: string;
+    inTime: string;
+    outTime: string;
+    assignedTableIds?: string[];
+  }) => Promise<void>;
+  updateTeamAssignment: (assignmentId: string, updates: {
+    shift: TeamAssignmentShift;
+    role: string;
+    teamMember: string;
+    inTime: string;
+    outTime: string;
+    assignedTableIds?: string[];
+  }) => Promise<void>;
+  deleteTeamAssignment: (assignmentId: string) => Promise<void>;
   setSelectedCheck: (check: Check | null) => void;
   setSelectedTable: (table: Table | null) => void;
 };
 
 const AppContext = createContext<AppContextType | null>(null);
+
+type RecallState =
+  | {
+      kind: "clear-table";
+      label: string;
+      table: Table;
+      checks: Check[];
+      remainingAssignmentActions: number;
+    }
+  | {
+      kind: "clear-all";
+      label: string;
+      tables: Table[];
+      checks: Check[];
+      remainingAssignmentActions: number;
+    };
 
 export function useApp() {
   const context = useContext(AppContext);
@@ -66,6 +139,24 @@ const getDocRef = (
   return doc(db, "restaurants", restaurantId, collectionName, id);
 };
 
+const getNotesCollectionRef = (restaurantId: RestaurantId) =>
+  collection(db, "restaurants", restaurantId, "notes");
+
+const getNoteDocRef = (restaurantId: RestaurantId, id: string) =>
+  doc(db, "restaurants", restaurantId, "notes", id);
+
+const getTeamAssignmentsCollectionRef = (restaurantId: RestaurantId) =>
+  collection(db, "restaurants", restaurantId, "teamAssignments");
+
+const getTeamAssignmentDocRef = (restaurantId: RestaurantId, id: string) =>
+  doc(db, "restaurants", restaurantId, "teamAssignments", id);
+
+const isPermissionDeniedError = (err: unknown) =>
+  typeof err === "object" &&
+  err !== null &&
+  "code" in err &&
+  (err as { code?: string }).code === "permission-denied";
+
 export function AppProvider({
   children,
   restaurantId,
@@ -77,6 +168,8 @@ export function AppProvider({
   const [state, setState] = useState<AppState>({
     checks: DEFAULT_CHECKS,
     tables: buildDefaultTables(restaurantId),
+    notes: [],
+    teamAssignments: [],
     selectedCheck: null,
     selectedTable: null,
   });
@@ -89,6 +182,7 @@ export function AppProvider({
   const [seeding, setSeeding] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const [deviceId, setDeviceId] = useState<string>("unknown");
+  const [pendingRecall, setPendingRecall] = useState<RecallState | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -102,7 +196,9 @@ export function AppProvider({
         setState(prev => ({
           ...prev,
           checks: parsed.checks ?? prev.checks,
-          tables: parsed.tables ?? prev.tables,
+          tables: parsed.tables ? ensureExpectedTables(restaurantId, parsed.tables) : prev.tables,
+          notes: parsed.notes ?? prev.notes,
+          teamAssignments: parsed.teamAssignments ?? prev.teamAssignments,
         }));
       } catch (err) {
         console.warn("cache read failed", err);
@@ -147,6 +243,8 @@ export function AppProvider({
 
     const checksQuery = query(getCollectionRef(restaurantId, "checks"), orderBy("checkNumber", "asc"));
     const tablesQuery = query(getCollectionRef(restaurantId, "tables"), orderBy("tableNumber", "asc"));
+    const notesQuery = query(getNotesCollectionRef(restaurantId), orderBy("createdAtMs", "desc"));
+    const teamAssignmentsQuery = query(getTeamAssignmentsCollectionRef(restaurantId), orderBy("createdAtMs", "asc"));
 
     const unsubChecks = onSnapshot(
       checksQuery,
@@ -172,7 +270,7 @@ export function AppProvider({
           id: docSnapshot.id,
           ...(docSnapshot.data() as any),
         }));
-        setState(prev => ({ ...prev, tables }));
+        setState(prev => ({ ...prev, tables: ensureExpectedTables(restaurantId, tables) }));
         setTablesLoaded(true);
       },
       (err) => {
@@ -182,9 +280,47 @@ export function AppProvider({
       }
     );
 
+    const unsubNotes = onSnapshot(
+      notesQuery,
+      (snapshot) => {
+        const notes: RestaurantNote[] = snapshot.docs.map(docSnapshot => ({
+          id: docSnapshot.id,
+          ...(docSnapshot.data() as any),
+        }));
+        setState(prev => ({ ...prev, notes }));
+      },
+      (err) => {
+        if (isPermissionDeniedError(err)) {
+          setState(prev => ({ ...prev, notes: [] }));
+          return;
+        }
+        console.error("notes snapshot error", err);
+      }
+    );
+
+    const unsubTeamAssignments = onSnapshot(
+      teamAssignmentsQuery,
+      (snapshot) => {
+        const teamAssignments: TeamAssignment[] = snapshot.docs.map(docSnapshot => ({
+          id: docSnapshot.id,
+          ...(docSnapshot.data() as any),
+        }));
+        setState(prev => ({ ...prev, teamAssignments }));
+      },
+      (err) => {
+        if (isPermissionDeniedError(err)) {
+          setState(prev => ({ ...prev, teamAssignments: [] }));
+          return;
+        }
+        console.error("team assignments snapshot error", err);
+      }
+    );
+
     return () => {
       unsubChecks();
       unsubTables();
+      unsubNotes();
+      unsubTeamAssignments();
     };
   }, [restaurantId]);
 
@@ -223,11 +359,13 @@ export function AppProvider({
     const payload = JSON.stringify({
       checks: state.checks,
       tables: state.tables,
+      notes: state.notes,
+      teamAssignments: state.teamAssignments,
     });
     AsyncStorage.setItem(cacheKey, payload).catch((err) => {
       console.warn("cache write failed", err);
     });
-  }, [state.checks, state.tables, hydrated, cacheKey]);
+  }, [state.checks, state.tables, state.notes, state.teamAssignments, hydrated, cacheKey]);
 
   async function seedFirestore() {
     const batch = writeBatch(db);
@@ -244,6 +382,14 @@ export function AppProvider({
   }
 
   async function assignCheckToTable(checkId: string, tableId: string) {
+    setPendingRecall(prev =>
+      prev
+        ? prev.remainingAssignmentActions <= 1
+          ? null
+          : { ...prev, remainingAssignmentActions: prev.remainingAssignmentActions - 1 }
+        : prev
+    );
+
     setState(prev => ({
       ...prev,
       checks: prev.checks.map(check =>
@@ -282,6 +428,14 @@ export function AppProvider({
   }
 
   async function assignMultipleChecksToTable(checkIds: string[], tableId: string) {
+    setPendingRecall(prev =>
+      prev
+        ? prev.remainingAssignmentActions <= 1
+          ? null
+          : { ...prev, remainingAssignmentActions: prev.remainingAssignmentActions - 1 }
+        : prev
+    );
+
     const idSet = new Set(checkIds);
     setState(prev => ({
       ...prev,
@@ -304,6 +458,18 @@ export function AppProvider({
   }
 
   async function clearTable(tableId: string) {
+    const targetTable = state.tables.find(table => table.id === tableId);
+    const affectedChecks = state.checks.filter(check => check.tableId === tableId);
+    if (targetTable) {
+      setPendingRecall({
+        kind: "clear-table",
+        label: `Cleared ${targetTable.tableNumber === 11 && restaurantId === "mill-creek" ? "Patio" : `table ${targetTable.tableNumber}`}`,
+        table: { ...targetTable },
+        checks: affectedChecks.map(check => ({ ...check })),
+        remainingAssignmentActions: 3,
+      });
+    }
+
     setState(prev => ({
       ...prev,
       tables: prev.tables.map(table =>
@@ -337,6 +503,14 @@ export function AppProvider({
   }
 
   async function clearAllAssignments() {
+    setPendingRecall({
+      kind: "clear-all",
+      label: "Cleared all assignments",
+      tables: state.tables.map(table => ({ ...table })),
+      checks: state.checks.map(check => ({ ...check })),
+      remainingAssignmentActions: 3,
+    });
+
     setState(prev => ({
       ...prev,
       checks: prev.checks.map(check => ({ ...check, tableId: null, color: undefined })),
@@ -359,6 +533,100 @@ export function AppProvider({
       );
     });
     await batch.commit();
+  }
+
+  async function recallLastClear() {
+    if (!pendingRecall) return;
+
+    if (pendingRecall.kind === "clear-table") {
+      setState(prev => ({
+        ...prev,
+        tables: prev.tables.map(table =>
+          table.id === pendingRecall.table.id
+            ? { ...table, color: pendingRecall.table.color }
+            : table
+        ),
+        checks: prev.checks.map(check => {
+          const restored = pendingRecall.checks.find(savedCheck => savedCheck.id === check.id);
+          return restored
+            ? { ...check, tableId: restored.tableId, color: restored.color }
+            : check;
+        }),
+      }));
+
+      const batch = writeBatch(db);
+      batch.set(
+        getDocRef(restaurantId, "tables", pendingRecall.table.id),
+        {
+          color: pendingRecall.table.color ?? null,
+          updatedAt: serverTimestamp(),
+          updatedByDeviceId: deviceId,
+        },
+        { merge: true }
+      );
+      pendingRecall.checks.forEach(check => {
+        batch.set(
+          getDocRef(restaurantId, "checks", check.id),
+          {
+            tableId: check.tableId,
+            color: check.color ?? null,
+            updatedAt: serverTimestamp(),
+            updatedByDeviceId: deviceId,
+          },
+          { merge: true }
+        );
+      });
+      await batch.commit();
+      setPendingRecall(null);
+      return;
+    }
+
+    setState(prev => ({
+      ...prev,
+      tables: prev.tables.map(table => {
+        const restored = pendingRecall.tables.find(savedTable => savedTable.id === table.id);
+        return restored
+          ? { ...table, color: restored.color }
+          : table;
+      }),
+      checks: prev.checks.map(check => {
+        const restored = pendingRecall.checks.find(savedCheck => savedCheck.id === check.id);
+        return restored
+          ? { ...check, tableId: restored.tableId, color: restored.color }
+          : check;
+      }),
+    }));
+
+    const batch = writeBatch(db);
+    pendingRecall.tables.forEach(table => {
+      batch.set(
+        getDocRef(restaurantId, "tables", table.id),
+        {
+          color: table.color ?? null,
+          updatedAt: serverTimestamp(),
+          updatedByDeviceId: deviceId,
+        },
+        { merge: true }
+      );
+    });
+    pendingRecall.checks.forEach(check => {
+      batch.set(
+        getDocRef(restaurantId, "checks", check.id),
+        {
+          tableId: check.tableId,
+          color: check.color ?? null,
+          updatedAt: serverTimestamp(),
+          updatedByDeviceId: deviceId,
+        },
+        { merge: true }
+      );
+    });
+    await batch.commit();
+    setPendingRecall(null);
+  }
+
+  function dismissRecall() {
+    setPendingRecall(null);
   }
 
   async function setCheckColor(checkId: string, color: StatusColor) {
@@ -399,6 +667,312 @@ export function AppProvider({
     await batch.commit();
   }
 
+  async function createNote(
+    text: string,
+    parentId?: string | null,
+    subject?: string | null,
+    options?: { kind?: "note" | "checklist"; checklistItems?: RestaurantChecklistItem[] }
+  ) {
+    const trimmed = text.trim();
+    const noteKind = options?.kind === "checklist" ? "checklist" : "note";
+    const checklistItems = options?.checklistItems ?? [];
+    if (!trimmed && checklistItems.length === 0) return;
+
+    const now = Date.now();
+    const noteId = `note-${now}-${Math.random().toString(36).slice(2, 8)}`;
+    const normalizedSubject = subject?.trim() ? subject.trim() : null;
+    const nextNote: RestaurantNote = {
+      id: noteId,
+      text: trimmed,
+      kind: noteKind,
+      subject: normalizedSubject,
+      parentId: parentId ?? null,
+      pinned: false,
+      checklistItems,
+      createdAtMs: now,
+      updatedAtMs: now,
+      expiresAtMs: now + NOTE_EXPIRY_MS,
+    };
+
+    setState(prev => ({
+      ...prev,
+      notes: [nextNote, ...prev.notes],
+    }));
+
+    const batch = writeBatch(db);
+    batch.set(
+      getNoteDocRef(restaurantId, noteId),
+      {
+        ...nextNote,
+        updatedAt: serverTimestamp(),
+        updatedByDeviceId: deviceId,
+      },
+      { merge: true }
+    );
+    await batch.commit();
+  }
+
+  async function updateNote(
+    noteId: string,
+    text: string,
+    subject?: string | null,
+    options?: { kind?: "note" | "checklist"; checklistItems?: RestaurantChecklistItem[] }
+  ) {
+    const trimmed = text.trim();
+    const noteKind = options?.kind === "checklist" ? "checklist" : "note";
+    const checklistItems = options?.checklistItems ?? [];
+    if (!trimmed && checklistItems.length === 0) return;
+
+    const now = Date.now();
+    const normalizedSubject = subject?.trim() ? subject.trim() : null;
+    setState(prev => ({
+      ...prev,
+      notes: prev.notes.map(note =>
+        note.id === noteId
+          ? {
+              ...note,
+              text: trimmed,
+              kind: noteKind,
+              subject: normalizedSubject,
+              checklistItems,
+              updatedAtMs: now,
+              expiresAtMs: now + NOTE_EXPIRY_MS,
+            }
+          : note
+      ),
+    }));
+
+    const batch = writeBatch(db);
+    batch.set(
+      getNoteDocRef(restaurantId, noteId),
+      {
+        text: trimmed,
+        kind: noteKind,
+        subject: normalizedSubject,
+        checklistItems,
+        updatedAtMs: now,
+        expiresAtMs: now + NOTE_EXPIRY_MS,
+        updatedAt: serverTimestamp(),
+        updatedByDeviceId: deviceId,
+      },
+      { merge: true }
+    );
+    await batch.commit();
+  }
+
+  async function deleteNote(noteId: string) {
+    const replyIds = state.notes.filter(note => note.parentId === noteId).map(note => note.id);
+    const idsToDelete = new Set([noteId, ...replyIds]);
+
+    setState(prev => ({
+      ...prev,
+      notes: prev.notes.filter(note => !idsToDelete.has(note.id)),
+    }));
+
+    const batch = writeBatch(db);
+    idsToDelete.forEach(id => {
+      batch.delete(getNoteDocRef(restaurantId, id));
+    });
+    await batch.commit();
+  }
+
+  async function deleteAllNotes() {
+    setState(prev => ({
+      ...prev,
+      notes: [],
+    }));
+
+    const batch = writeBatch(db);
+    state.notes.forEach(note => {
+      batch.delete(getNoteDocRef(restaurantId, note.id));
+    });
+    await batch.commit();
+  }
+
+  async function toggleNotePinned(noteId: string) {
+    const targetNote = state.notes.find(note => note.id === noteId);
+    if (!targetNote) return;
+
+    const now = Date.now();
+    const nextPinned = !targetNote.pinned;
+
+    setState(prev => ({
+      ...prev,
+      notes: prev.notes.map(note =>
+        note.id === noteId
+          ? { ...note, pinned: nextPinned, updatedAtMs: now, expiresAtMs: now + NOTE_EXPIRY_MS }
+          : note
+      ),
+    }));
+
+    const batch = writeBatch(db);
+    batch.set(
+      getNoteDocRef(restaurantId, noteId),
+      {
+        pinned: nextPinned,
+        updatedAtMs: now,
+        expiresAtMs: now + NOTE_EXPIRY_MS,
+        updatedAt: serverTimestamp(),
+        updatedByDeviceId: deviceId,
+      },
+      { merge: true }
+    );
+    await batch.commit();
+  }
+
+  async function toggleNoteChecklistItem(noteId: string, itemId: string) {
+    const targetNote = state.notes.find(note => note.id === noteId);
+    if (!targetNote?.checklistItems?.length) return;
+
+    const now = Date.now();
+    const nextItems = targetNote.checklistItems.map(item =>
+      item.id === itemId
+        ? {
+            ...item,
+            checked: !item.checked,
+            checkedAtMs: item.checked ? null : now,
+          }
+        : item
+    );
+
+    setState(prev => ({
+      ...prev,
+      notes: prev.notes.map(note =>
+        note.id === noteId
+          ? {
+              ...note,
+              checklistItems: nextItems,
+              updatedAtMs: now,
+              expiresAtMs: now + NOTE_EXPIRY_MS,
+            }
+          : note
+      ),
+    }));
+
+    const batch = writeBatch(db);
+    batch.set(
+      getNoteDocRef(restaurantId, noteId),
+      {
+        checklistItems: nextItems,
+        updatedAtMs: now,
+        expiresAtMs: now + NOTE_EXPIRY_MS,
+        updatedAt: serverTimestamp(),
+        updatedByDeviceId: deviceId,
+      },
+      { merge: true }
+    );
+    await batch.commit();
+  }
+
+  async function createTeamAssignment(assignment: {
+    shift: TeamAssignmentShift;
+    role: string;
+    teamMember: string;
+    inTime: string;
+    outTime: string;
+    assignedTableIds?: string[];
+  }) {
+    const role = assignment.role.trim();
+    const teamMember = assignment.teamMember.trim();
+    const inTime = assignment.inTime.trim();
+    const outTime = assignment.outTime.trim();
+    if (!role || !teamMember || !inTime || !outTime) return;
+
+    const now = Date.now();
+    const assignmentId = `assignment-${now}-${Math.random().toString(36).slice(2, 8)}`;
+    const nextAssignment: TeamAssignment = {
+      id: assignmentId,
+      shift: assignment.shift,
+      role,
+      teamMember,
+      inTime,
+      outTime,
+      assignedTableIds: assignment.assignedTableIds ?? [],
+      createdAtMs: now,
+      updatedAtMs: now,
+    };
+
+    setState(prev => ({
+      ...prev,
+      teamAssignments: [...prev.teamAssignments, nextAssignment],
+    }));
+
+    const batch = writeBatch(db);
+    batch.set(
+      getTeamAssignmentDocRef(restaurantId, assignmentId),
+      {
+        ...nextAssignment,
+        updatedAt: serverTimestamp(),
+        updatedByDeviceId: deviceId,
+      },
+      { merge: true }
+    );
+    await batch.commit();
+  }
+
+  async function updateTeamAssignment(assignmentId: string, updates: {
+    shift: TeamAssignmentShift;
+    role: string;
+    teamMember: string;
+    inTime: string;
+    outTime: string;
+    assignedTableIds?: string[];
+  }) {
+    const role = updates.role.trim();
+    const teamMember = updates.teamMember.trim();
+    const inTime = updates.inTime.trim();
+    const outTime = updates.outTime.trim();
+    if (!role || !teamMember || !inTime || !outTime) return;
+
+    const now = Date.now();
+    setState(prev => ({
+      ...prev,
+      teamAssignments: prev.teamAssignments.map(assignment =>
+        assignment.id === assignmentId
+          ? {
+              ...assignment,
+              shift: updates.shift,
+              role,
+              teamMember,
+              inTime,
+              outTime,
+              assignedTableIds: updates.assignedTableIds ?? [],
+              updatedAtMs: now,
+            }
+          : assignment
+      ),
+    }));
+
+    const batch = writeBatch(db);
+    batch.set(
+      getTeamAssignmentDocRef(restaurantId, assignmentId),
+      {
+        shift: updates.shift,
+        role,
+        teamMember,
+        inTime,
+        outTime,
+        assignedTableIds: updates.assignedTableIds ?? [],
+        updatedAtMs: now,
+        updatedAt: serverTimestamp(),
+        updatedByDeviceId: deviceId,
+      },
+      { merge: true }
+    );
+    await batch.commit();
+  }
+
+  async function deleteTeamAssignment(assignmentId: string) {
+    setState(prev => ({
+      ...prev,
+      teamAssignments: prev.teamAssignments.filter(assignment => assignment.id !== assignmentId),
+    }));
+
+    const batch = writeBatch(db);
+    batch.delete(getTeamAssignmentDocRef(restaurantId, assignmentId));
+    await batch.commit();
+  }
+
   const setSelectedCheck = (check: Check | null) => {
     setState(prev => ({ ...prev, selectedCheck: check }));
   };
@@ -421,8 +995,20 @@ export function AppProvider({
     clearTable,
     assignMultipleChecksToTable,
     clearAllAssignments,
+    pendingRecall: pendingRecall ? { label: pendingRecall.label } : null,
+    recallLastClear,
+    dismissRecall,
     setCheckColor,
     setTableColor,
+    createNote,
+    updateNote,
+    deleteNote,
+    deleteAllNotes,
+    toggleNotePinned,
+    toggleNoteChecklistItem,
+    createTeamAssignment,
+    updateTeamAssignment,
+    deleteTeamAssignment,
     setSelectedCheck,
     setSelectedTable,
   };

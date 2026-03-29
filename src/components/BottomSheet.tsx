@@ -1,13 +1,16 @@
 import React from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
+import { uiTheme } from '../constants/uiTheme';
 
 interface BottomSheetProps {
   isOpen: boolean;
   onClose: () => void;
   children: React.ReactNode;
+  sheetStyle?: StyleProp<ViewStyle>;
+  contentStyle?: StyleProp<ViewStyle>;
 }
 
-export function BottomSheet({ isOpen, onClose, children }: BottomSheetProps) {
+export function BottomSheet({ isOpen, onClose, children, sheetStyle, contentStyle }: BottomSheetProps) {
   if (!isOpen) return null;
 
   return (
@@ -19,8 +22,8 @@ export function BottomSheet({ isOpen, onClose, children }: BottomSheetProps) {
     >
       <View style={styles.overlay}>
         <Pressable style={styles.backdrop} onPress={onClose} />
-        <View style={styles.sheet}>
-          <ScrollView style={styles.content}>
+        <View style={[styles.sheet, sheetStyle]}>
+          <ScrollView contentContainerStyle={[styles.content, contentStyle]}>
             {children}
           </ScrollView>
         </View>
@@ -36,20 +39,22 @@ const styles = StyleSheet.create({
   },
   backdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(20, 29, 35, 0.42)',
   },
   sheet: {
-    backgroundColor: 'white',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
     maxHeight: '80%',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 20,
-    elevation: 5,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: -20 },
+    shadowOpacity: 0.18,
+    shadowRadius: 50,
+    elevation: 16,
   },
   content: {
-    padding: 24,
+    paddingHorizontal: 28,
+    paddingTop: 28,
+    paddingBottom: 28,
   },
 });

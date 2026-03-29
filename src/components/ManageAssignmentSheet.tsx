@@ -1,4 +1,5 @@
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { getTableDisplayLabel } from '../constants/tableLabels';
 import { useApp } from '../contexts/AppContext';
 import { Check } from '../types';
 
@@ -8,7 +9,7 @@ interface ManageAssignmentSheetProps {
 }
 
 export function ManageAssignmentSheet({ check, onClose }: ManageAssignmentSheetProps) {
-  const { state, clearCheck } = useApp();
+  const { state, clearCheck, restaurantId } = useApp();
   const table = check.tableId ? state.tables.find(t => t.id === check.tableId) : null;
 
   const handleClear = async () => {
@@ -23,7 +24,7 @@ export function ManageAssignmentSheet({ check, onClose }: ManageAssignmentSheetP
     <View>
       <Text style={styles.title}>Check #{check.checkNumber}</Text>
       {table && (
-        <Text style={styles.message}>Currently assigned to Table {table.tableNumber}</Text>
+        <Text style={styles.message}>Currently assigned to {getTableDisplayLabel(restaurantId, table.tableNumber)}</Text>
       )}
       <TouchableOpacity onPress={handleClear} style={styles.clearButton}>
         <Text style={styles.clearText}>Clear Assignment</Text>

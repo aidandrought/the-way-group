@@ -6,35 +6,22 @@ export type TableLayoutRow = TableLayoutCell[];
 export type RestaurantTableLayoutColumn = { key: string; rows: TableLayoutRow[] };
 
 const MILL_CREEK_TABLE_COLUMNS: RestaurantTableLayoutColumn[] = [
-  { key: 'A', rows: [[1, 2, 3], [4, 5, 6]] },
-  { key: 'B', rows: [[10], [11]] },
-  { key: 'C', rows: [[20], [21], [22], [23]] },
-  { key: 'D', rows: [[24], [25], [26], [27], [28]] },
-  { key: 'E', rows: [[30], [31], [32], [33], [34]] },
-  { key: 'F', rows: [[40, 41, 43, 44], [50, 51, 53, 54]] },
-  { key: 'G', rows: [[60], [61], [62], [63], [64]] },
-  { key: 'H', rows: [[70, 71], [72, 73], [74, 75], [76, 77], [78]] },
+  { key: 'H', rows: [[1, 2, 3], [6, 5, 4], [10, 11, 12]] },
+  { key: 'B', rows: [[20, 21, 22], [25, 24, 23]] },
+  { key: 'D', rows: [[26, 27, 28, 30], [34, 33, 32, 31], [40, 41, 43, 44]] },
+  { key: 'W', rows: [[50, 51, 53, 54, 60], [64, 63, 62, 61, 70]] },
+  { key: 'P', rows: [[71, 72, 73, 74], [78, 77, 76, 75]] },
 ];
 
-// Everett layout based on provided floor plan image, arranged for the existing horizontal table map UI.
+// POE layout (restaurantId: "everett"): mapped to 38 active table slots.
 const EVERETT_TABLE_COLUMNS: RestaurantTableLayoutColumn[] = [
-  // Main left block: stack 1s / 20s / 40s bands so it reads like the floor map
-  { key: 'A', rows: [[1], [20], [40]] },
-  { key: 'B', rows: [[2], [21], [null]] },
-  { key: 'C', rows: [[3], [22], [41]] },
-  { key: 'D', rows: [[4], [23], [null]] },
-  { key: 'E', rows: [[5], [24], [42]] },
-  { key: 'F', rows: [[6], [25], [null]] },
-  { key: 'G', rows: [[10], [26], [43]] },
-  { key: 'H', rows: [[null], [null], [44]] },
-
-  // Right-side lower clusters: 30s, 34-39, and the 11-16 two-top / two-mid / two-bottom stack
-  { key: 'I', rows: [[30], [34], [11, 12]] },
-  { key: 'J', rows: [[31], [35], [13, 14]] },
-  { key: 'K', rows: [[32], [36], [15, 16]] },
-  { key: 'L', rows: [[33], [37]] },
-  { key: 'M', rows: [[null], [38]] },
-  { key: 'N', rows: [[null], [39]] },
+  { key: 'A', rows: [[1, 2, 3, 4, 5, 6]] },
+  { key: 'B', rows: [[7, 8, 9, 10, 11, 12]] },
+  { key: 'C', rows: [[13, 14, 15, 16, 17, 18]] },
+  { key: 'D', rows: [[19, 20, 21, 22, 23, 24]] },
+  { key: 'E', rows: [[25, 26, 27, 28, 29, 30]] },
+  { key: 'F', rows: [[31, 32, 33, 34, 35, 36]] },
+  { key: 'G', rows: [[37, 38]] },
 ];
 
 // Mukilteo simplified layout: ordered by zones with all required tables.
